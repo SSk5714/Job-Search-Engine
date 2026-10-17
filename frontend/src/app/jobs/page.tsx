@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { api, type Job } from "@/lib/api";
 import { REC_LABEL, TRACKS, date, salary } from "@/lib/format";
 import { ErrorBox, Loading, Score, StateBadge, errorText, useLoad } from "@/components/ui";
+import { ImportJob } from "@/components/ImportJob";
 
 const CRITERIA: Record<string, string> = {
   technical: "Technical skills",
@@ -29,6 +30,15 @@ function JobCard({ job, onChange, initiallyOpen }: { job: Job; onChange: (j: Job
     try { onChange(await api.decide(job.id, d)); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   }
 
+  async function recheck() {
+    setBusy(true); setError(null);
+    try {
+      const r = await api.recheck(job.id);
+      onChange(r);
+      if (r.availability === "unknown") setError("The source could not confirm availability right now.");
+    } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
+  }
+
   async function toggle() {
     setOpen(!open);
     if (!detail) api.job(job.id).then(setDetail).catch(() => undefined);
@@ -51,6 +61,8 @@ function JobCard({ job, onChange, initiallyOpen }: { job: Job; onChange: (j: Job
         <div style={{ textAlign: "right" }}>
           <Score value={ev?.score} />
           {ev && <div className="small muted">{REC_LABEL[ev.recommendation]}</div>}
+          {ev && <span className={`badge ${ev.matcher === "claude" ? "accent" : ""}`} title={ev.model_version}>
+            {ev.matcher === "claude" ? "Claude" : "Rules"}</span>}
         </div>
       </div>
 
@@ -82,6 +94,8 @@ function JobCard({ job, onChange, initiallyOpen }: { job: Job; onChange: (j: Job
           {job.application?.decision === "later" && <span className="small muted">Kept for later</span>}
         </div>
         <div className="row small">
+          {job.availability === "closed" && <span className="badge bad">Closed</span>}
+          {job.source !== "mock" && <button className="btn small" disabled={busy} onClick={recheck}>Recheck</button>}
           <a href={job.url} target="_blank" rel="noopener noreferrer nofollow">Original listing ({job.source_name}) ↗</a>
           <button className="btn small" onClick={toggle}>{open ? "Less" : "Details"}</button>
         </div>
@@ -101,6 +115,30 @@ function JobCard({ job, onChange, initiallyOpen }: { job: Job; onChange: (j: Job
                   </div>
                 ))}
               </div>
+              {ev.evidence.filter((e) => e.fact_id && e.job_quote).length > 0 && (
+                <>
+                  <div className="small muted" style={{ marginBottom: 4 }}>Evidence from the posting, matched to your verified facts</div>
+                  <ul className="small" style={{ margin: "0 0 10px", paddingLeft: 18 }}>
+                    {ev.evidence.filter((e) => e.fact_id && e.job_quote).map((e, i) => (
+                      <li key={i}><span className="muted">{e.skill ?? e.criterion}:</span> “{e.job_quote}”</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {(ev.eligibility.requirements ?? []).length > 0 && (
+                <>
+                  <div className="small muted" style={{ marginBottom: 4 }}>Requirements</div>
+                  <ul className="small" style={{ margin: "0 0 10px", paddingLeft: 18 }}>
+                    {(ev.eligibility.requirements ?? []).map((r, i) => (
+                      <li key={i}>
+                        <span className={`badge ${r.status === "met" ? "good" : r.status === "not_met" ? "bad" : "warn"}`}>
+                          {r.status === "met" ? "met" : r.status === "not_met" ? "not met" : "check"}</span>{" "}
+                        {r.text}{r.mandatory ? "" : " (preferred)"}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
               <p className="small muted">Track {ev.track} ({TRACKS[ev.track] ?? ev.track}) · {ev.seniority} · model {ev.model_version}</p>
             </>
           )}
@@ -120,7 +158,8 @@ function JobsInner() {
   const [track, setTrack] = useState("");
   const [minScore, setMinScore] = useState(params.get("min_score") ?? "");
   const [state, setState] = useState("classified");
-  const { data, error, loading, setData } = useLoad(
+  const [rescoreMsg, setRescoreMsg] = useState<string | null>(null);
+  const { data, error, loading, setData, reload } = useLoad(
     () => api.jobs({ q, track: track || undefined, min_score: minScore ? Number(minScore) : undefined, state: state || undefined }),
     [q, track, minScore, state],
   );
@@ -132,7 +171,16 @@ function JobsInner() {
           <h1>Job Review</h1>
           <p className="sub">Sorted by fit. Approving a job only starts preparation; nothing is ever submitted without your final approval.</p>
         </div>
+        <div className="row">
+          <button className="btn" onClick={async () => {
+            setRescoreMsg("Re-scoring…");
+            try { const r = await api.rescore(); setRescoreMsg(`Re-scored ${r.rescored} jobs`); reload(); }
+            catch (e) { setRescoreMsg(errorText(e)); }
+          }}>Re-score</button>
+          <ImportJob onImported={() => reload()} />
+        </div>
       </div>
+      {rescoreMsg && <p className="small muted" style={{ marginBottom: 8 }}>{rescoreMsg}</p>}
       <div className="card form-grid" style={{ marginBottom: 16, gridTemplateColumns: "2fr 1fr 1fr 1fr" }}>
         <label>Search<input placeholder="Company, title or city" value={q} onChange={(e) => setQ(e.target.value)} /></label>
         <label>Status
@@ -152,7 +200,8 @@ function JobsInner() {
         <label>Minimum score<input type="number" min={0} max={100} value={minScore} onChange={(e) => setMinScore(e.target.value)} /></label>
       </div>
       <p className="notice small" style={{ marginBottom: 16 }}>
-        Scores come from the rule-based model <span className="mono">rules-v0</span> using only verified profile facts. Claude-based matching replaces the judgment parts in Phase 2.
+        Scores use only verified profile facts. Claude reads each posting when an API key is configured; the points
+        and eligibility rules are always computed by code. Use Re-score after editing your profile or weights.
       </p>
       <ErrorBox message={error} />
       {loading && !data ? <Loading /> : null}

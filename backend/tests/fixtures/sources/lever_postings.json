@@ -1,0 +1,38 @@
+[
+  {
+    "additional": "",
+    "additionalPlain": "We sponsor Deutschlandticket.",
+    "categories": {
+      "commitment": "Full-time",
+      "department": "Engineering",
+      "location": "Munich",
+      "team": "Infotainment",
+      "allLocations": ["Munich"]
+    },
+    "createdAt": 1791100000000,
+    "descriptionPlain": "Join our Android Automotive team working on AOSP and HAL integration.",
+    "description": "<div>Join our Android Automotive team working on AOSP and HAL integration.</div>",
+    "id": "3f9c1a2e-1111-4a2b-9c3d-000000000001",
+    "lists": [
+      {"text": "What you bring", "content": "<li>C++ and Java</li><li>AIDL, JNI</li><li>German B2</li>"}
+    ],
+    "salaryRange": {"min": 52000, "max": 62000, "currency": "EUR", "interval": "per-year-salary"},
+    "text": "Junior Android Automotive Engineer",
+    "country": "DE",
+    "workplaceType": "hybrid",
+    "hostedUrl": "https://jobs.eu.lever.co/exampleauto/3f9c1a2e-1111-4a2b-9c3d-000000000001",
+    "applyUrl": "https://jobs.eu.lever.co/exampleauto/3f9c1a2e-1111-4a2b-9c3d-000000000001/apply"
+  },
+  {
+    "categories": {"commitment": "Full-time", "location": "Munich", "team": "People"},
+    "createdAt": 1791100000000,
+    "descriptionPlain": "HR partner.",
+    "id": "3f9c1a2e-1111-4a2b-9c3d-000000000002",
+    "lists": [],
+    "text": "HR Business Partner",
+    "country": "DE",
+    "workplaceType": "on-site",
+    "hostedUrl": "https://jobs.eu.lever.co/exampleauto/3f9c1a2e-1111-4a2b-9c3d-000000000002",
+    "applyUrl": "https://jobs.eu.lever.co/exampleauto/3f9c1a2e-1111-4a2b-9c3d-000000000002/apply"
+  }
+]

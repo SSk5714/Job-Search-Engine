@@ -58,7 +58,7 @@ package (`backend/jobpilot`) so schemas and the state machine are never duplicat
 
 ## 4. Database schema (as built)
 
-23 tables. UUID keys, `created_at`/`updated_at`, append-only history.
+24 tables (Phase 2 added `app_settings`). UUID keys, `created_at`/`updated_at`, append-only history.
 
 | Group | Tables |
 | --- | --- |
@@ -118,8 +118,9 @@ with `Idempotent-Replay: true`, a reused key with a different body returns 422.
 | POST /applications/{id}/approve | Approval bound to current hashes | 1 ✅ (UI in 4) |
 | POST /applications/{id}/submit | Guards only; returns 501 until Phase 4 | 1 (guard) |
 | GET /dashboard, GET /health, GET /health/details | Dashboard counts, health | 1 ✅ |
-| POST /jobs/import-url | Manual URL import | 2 |
-| GET/PUT /settings/scoring | Weights and thresholds | 2 |
+| POST /jobs/import-url | URL import: API-backed sites fetched, others need pasted details | 2 ✅ |
+| POST /jobs/{id}/recheck, POST /jobs/rescore | Availability recheck; re-evaluate jobs awaiting review | 2 ✅ |
+| GET/PUT /settings/scoring, GET/PUT /settings/ai | Weights, thresholds, matcher, AI limits | 2 ✅ |
 | POST /applications/{id}/documents/generate | CV and cover letter | 3 |
 | GET /alerts, POST /alerts/{id}/ack | Monitor alerts | 5 |
 
@@ -135,6 +136,13 @@ Pydantic models in `jobpilot/schemas/agents.py` (discovery, built) and section 5
 Docs version (matching, documents, preparation, monitor alert). Claude calls in later phases
 use tool use with JSON schemas generated from the same models; schema failure is a failed
 attempt, never a partial write.
+
+**(as built, Phase 2)** Claude matching (`claude/match-v1/<model>/w<settings-hash>`) uses
+structured outputs via `client.messages.parse()`. Claude only extracts track, seniority, skills mapped
+to verified fact ids, language and other requirements, each with a verbatim quote. Code discards
+fact ids that are not in the verified snapshot and quotes not found in the posting, then computes the
+score with the same arithmetic as the rules matcher. Per-run and daily USD budgets apply; on any AI
+failure the job is scored by rules and the fallback is written into the explanation and the error log.
 
 **(as built)** Phase 1 matching is `rules-v0` (`domain/scoring.py`): keyword rules over
 **verified** facts only, with evidence per point, hard eligibility rules separate from the

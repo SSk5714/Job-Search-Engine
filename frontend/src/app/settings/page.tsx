@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, type Fact } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import { ErrorBox, Loading, errorText, useLoad } from "@/components/ui";
+import { MatchingSettings } from "@/components/MatchingSettings";
 
 const SECTIONS: { category: string; title: string; hint: string }[] = [
   { category: "education", title: "Education", hint: "Degree, university, graduation (YYYY-MM), grade." },
@@ -114,10 +115,10 @@ function Health() {
           <table>
             <thead><tr><th>Source</th><th>Access</th><th>Notes</th></tr></thead>
             <tbody>
-              {data.sources.map((s) => (
+              {data.sources.filter((s) => s.code !== "mock_broken").map((s) => (
                 <tr key={s.code}>
                   <td>{s.name}</td>
-                  <td><span className={`badge ${s.label === "Automated" ? "good" : s.label === "Mock" ? "accent" : ""}`}>{s.label}</span></td>
+                  <td><span className={`badge ${s.label === "Automated" ? "good" : s.label === "Untested" ? "warn" : s.label === "Mock" ? "accent" : ""}`}>{s.label}</span></td>
                   <td className="small muted">{s.notes}</td>
                 </tr>
               ))}
@@ -151,6 +152,7 @@ export default function SettingsPage() {
         </div>
       </div>
       <ProfileEditor />
+      <MatchingSettings />
       <Health />
     </>
   );

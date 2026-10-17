@@ -1,0 +1,25 @@
+{
+  "stellenangebote": [
+    {
+      "beruf": "Softwareentwickler/in",
+      "titel": "Android Entwickler (m/w/d) Kotlin",
+      "refnr": "10001-1001234567-S",
+      "arbeitsort": {"plz": "09111", "ort": "Chemnitz", "region": "Sachsen", "land": "Deutschland"},
+      "arbeitgeber": "Beispiel Software GmbH",
+      "aktuelleVeroeffentlichungsdatum": "2026-10-15",
+      "eintrittsdatum": "2026-11-01"
+    },
+    {
+      "beruf": "Softwareentwickler/in",
+      "titel": "Java Backend Entwickler (m/w/d)",
+      "refnr": "10001-1001234568-S",
+      "arbeitsort": {"plz": "01067", "ort": "Dresden", "region": "Sachsen", "land": "Deutschland"},
+      "arbeitgeber": "Beispiel Data AG",
+      "aktuelleVeroeffentlichungsdatum": "2026-10-14",
+      "externeUrl": "https://karriere.beispiel-data.example/jobs/java-backend"
+    }
+  ],
+  "maxErgebnisse": 2,
+  "page": 1,
+  "size": 25
+}

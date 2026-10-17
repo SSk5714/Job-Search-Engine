@@ -6,7 +6,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from jobpilot.api import routes_applications, routes_auth_profile, routes_dashboard, routes_jobs, routes_search
+from jobpilot.api import (
+    routes_applications,
+    routes_auth_profile,
+    routes_dashboard,
+    routes_jobs,
+    routes_search,
+    routes_settings,
+)
 from jobpilot.api.deps import csrf_protect
 from jobpilot.config import get_settings
 from jobpilot.domain.errors import DomainError
@@ -55,7 +62,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
 
     deps = [Depends(csrf_protect)]
     for r in (routes_auth_profile.auth, routes_auth_profile.router, routes_search.router, routes_jobs.router,
-              routes_applications.router, routes_dashboard.router):
+              routes_applications.router, routes_dashboard.router, routes_settings.router):
         app.include_router(r, prefix="/api/v1", dependencies=deps)
     return app
 

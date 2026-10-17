@@ -13,6 +13,7 @@ from jobpilot.db.session import get_db
 from jobpilot.domain import transitions
 from jobpilot.domain.errors import DomainError, NotFound
 from jobpilot.domain.states import INACTIVE, Actor, State
+from jobpilot.orchestrator import matching, runs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"], dependencies=[Depends(current_user)])
 
@@ -82,6 +83,63 @@ def list_jobs(
     return {"total": len(rows), "items": [s.job(j, evs.get(j.id), apps.get(j.id)) for j in page]}
 
 
+class ImportIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2000, pattern=r"^https?://")
+    title: str | None = Field(default=None, max_length=255)
+    company: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=120)
+    country: str | None = Field(default=None, min_length=2, max_length=2)
+    work_mode: Literal["onsite", "hybrid", "remote"] | None = None
+    description: str | None = Field(default=None, max_length=20000)
+
+
+@router.post("/import-url", status_code=201)
+def import_url(body: ImportIn, request: Request, db: Session = Depends(get_db)):
+    """Greenhouse, Lever, Personio and Bundesagentur links are fetched through their APIs.
+    Links from LinkedIn, StepStone, Indeed, XING or anywhere else are never fetched:
+    send the title, company and description with them."""
+    def handler():
+        manual = body.model_dump(exclude={"url"})
+        if manual.get("country"):
+            manual["country"] = manual["country"].upper()
+        job, outcome = runs.import_url(db, body.url, manual)
+        if outcome == "new":
+            matching.classify_pending(db)
+        db.flush()
+        app = current_applications(db, [job.id]).get(job.id)
+        return 201, {"outcome": outcome, "job": s.job(job, latest_evaluations(db, [job.id]).get(job.id), app)}
+
+    return run_idempotent(db, request, "POST /jobs/import-url", body.model_dump(), handler)
+
+
+class RescoreIn(BaseModel):
+    application_ids: list[uuid.UUID] | None = None
+
+
+@router.post("/rescore")
+def rescore(body: RescoreIn, request: Request, db: Session = Depends(get_db)):
+    """Re-evaluate jobs awaiting your decision with the current profile, weights and matcher."""
+    def handler():
+        result = matching.rescore(db, app_ids=body.application_ids)
+        return 200, result
+
+    return run_idempotent(db, request, "POST /jobs/rescore", body.model_dump(), handler)
+
+
+@router.post("/{job_id}/recheck")
+def recheck(job_id: uuid.UUID, db: Session = Depends(get_db)):
+    job = db.get(m.Job, job_id)
+    if job is None:
+        raise NotFound("Job")
+    status = runs.recheck_availability(db, job)
+    app = current_applications(db, [job.id]).get(job.id)
+    if status == "closed" and app and State(app.state) not in INACTIVE and app.state != State.SUBMITTED:
+        transitions.apply(db, app.id, State.EXPIRED, Actor.ORCHESTRATOR, "listing closed on recheck")
+    db.commit()
+    return {"availability": status, **s.job(job, latest_evaluations(db, [job.id]).get(job.id),
+                                             current_applications(db, [job.id]).get(job.id))}
+
+
 @router.get("/{job_id}")
 def get_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
     j = db.get(m.Job, job_id)
@@ -98,6 +156,18 @@ class DecisionIn(BaseModel):
 
 @router.post("/{job_id}/decision")
 def decide(job_id: uuid.UUID, body: DecisionIn, request: Request, db: Session = Depends(get_db)):
+    if body.decision == "approve":
+        # Recheck the listing before any preparation work starts.
+        job = db.get(m.Job, job_id)
+        if job is not None and job.source.access_mode in ("api", "feed"):
+            if runs.recheck_availability(db, job) == "closed":
+                app = current_applications(db, [job.id]).get(job.id)
+                if app and State(app.state) not in INACTIVE:
+                    transitions.apply(db, app.id, State.EXPIRED, Actor.ORCHESTRATOR, "listing closed on recheck")
+                db.commit()
+                raise DomainError("listing_closed", "The listing is no longer open; it was marked expired")
+            db.commit()
+
     def handler():
         job = db.get(m.Job, job_id)
         if job is None:

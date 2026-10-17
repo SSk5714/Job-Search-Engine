@@ -111,6 +111,8 @@ class JobSource(Base, Timestamped):
     implemented: Mapped[bool] = mapped_column(Boolean, default=False)
     rate_limit_per_min: Mapped[int] = mapped_column(Integer, default=30)
     notes: Mapped[str | None] = mapped_column(Text)
+    # Set the first time a real (non-mock) run fetched jobs successfully.
+    live_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SearchConfig(Base, Timestamped):
@@ -119,6 +121,8 @@ class SearchConfig(Base, Timestamped):
     name: Mapped[str] = mapped_column(String(120))
     filters: Mapped[dict] = mapped_column(JSONB, default=dict)
     source_codes: Mapped[list] = mapped_column(JSONB, default=list)
+    # Per-source settings, e.g. {"greenhouse": {"boards": ["acme"]}, "ba_jobsuche": {"radius_km": 50}}
+    source_options: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     cron: Mapped[str | None] = mapped_column(String(64))
     allow_overlap: Mapped[bool] = mapped_column(Boolean, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -186,7 +190,8 @@ class JobMatchEvaluation(Base, Timestamped):
     id: Mapped[uuid.UUID] = pk()
     job_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("jobs.id"))
     profile_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("profile_versions.id"))
-    model_version: Mapped[str] = mapped_column(String(64))
+    model_version: Mapped[str] = mapped_column(String(128))
+    matcher: Mapped[str] = mapped_column(String(16), default="rules", server_default="rules")  # rules | claude
     weights: Mapped[dict] = mapped_column(JSONB)
     breakdown: Mapped[dict] = mapped_column(JSONB)
     score: Mapped[int] = mapped_column(Integer)
@@ -400,6 +405,16 @@ class Notification(Base, Timestamped):
     alert_key: Mapped[str | None] = mapped_column(String(128))
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AppSetting(Base):
+    """Small JSON settings (scoring weights, AI limits) editable from the UI."""
+
+    __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now())
 
 
 class IdempotencyKey(Base):

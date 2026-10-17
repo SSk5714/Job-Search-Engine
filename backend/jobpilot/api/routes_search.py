@@ -40,7 +40,8 @@ def patch_source(code: str, body: SourcePatch, db: Session = Depends(get_db)):
 
 
 def _config_out(c: m.SearchConfig) -> dict:
-    return {"id": c.id, "name": c.name, "filters": c.filters, "source_codes": c.source_codes, "cron": c.cron,
+    return {"id": c.id, "name": c.name, "filters": c.filters, "source_codes": c.source_codes,
+            "source_options": c.source_options or {}, "cron": c.cron,
             "allow_overlap": c.allow_overlap, "enabled": c.enabled}
 
 
@@ -48,6 +49,7 @@ class ConfigIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     filters: SearchFilters = Field(default_factory=SearchFilters)
     source_codes: list[str] = Field(default_factory=lambda: ["mock"])
+    source_options: dict[str, dict] = Field(default_factory=dict)
     cron: str | None = Field(default=None, max_length=64)
     allow_overlap: bool = False
     enabled: bool = True
@@ -57,6 +59,10 @@ def _check_sources(codes: list[str]) -> None:
     unknown = [c for c in codes if c not in SOURCES]
     if unknown:
         raise DomainError("validation_error", f"Unknown sources: {', '.join(unknown)}", status_code=422)
+    manual = [c for c in codes if SOURCES[c][2] is None]
+    if manual:
+        raise DomainError("validation_error", f"Not searchable automatically: {', '.join(manual)}. "
+                          "Use URL import for these.", status_code=422)
 
 
 @router.get("/search-configs")

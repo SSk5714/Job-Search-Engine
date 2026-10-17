@@ -126,13 +126,20 @@ def set_verified(db: Session, fact_id, verified: bool) -> m.ProfileFact:
 
 
 def profile_view(version: m.ProfileVersion) -> ProfileView:
+    """Verified facts only. This snapshot is all that matchers (rules or Claude) ever see."""
     skills, elig, langs = {}, {}, {}
+    other: list[str] = []
+    for_ai: list[dict] = []
     unverified = 0
     for f in version.facts:
         if not f.verified:
             if f.value:
                 unverified += 1
             continue
+        for_ai.append({"id": str(f.id), "category": f.category, "key": f.key, "value": f.value,
+                       "context": f.context})
+        if f.category not in ("skill", "eligibility", "language"):
+            other.append(str(f.id))
         if f.category == "skill":
             skills[f.value.lower()] = str(f.id)
         elif f.category == "eligibility":
@@ -140,4 +147,4 @@ def profile_view(version: m.ProfileVersion) -> ProfileView:
         elif f.category == "language":
             langs[f.key.lower()] = (f.value, str(f.id))
     return ProfileView(version_id=str(version.id), skills=skills, eligibility=elig, languages=langs,
-                       unverified_count=unverified)
+                       unverified_count=unverified, other_fact_ids=other, facts_for_ai=for_ai)

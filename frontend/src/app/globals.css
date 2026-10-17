@@ -148,3 +148,4 @@ label { font-size: 13px; color: var(--ink-2); display: grid; gap: 4px; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .two, .form-grid { grid-template-columns: 1fr; }
 }
+input[type="range"], input[type="checkbox"] { accent-color: var(--accent); padding: 0; }

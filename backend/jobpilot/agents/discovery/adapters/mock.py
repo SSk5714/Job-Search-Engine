@@ -26,7 +26,7 @@ class MockAdapter(Adapter):
 
     code = "mock"
 
-    def fetch(self, filters: SearchFilters) -> list[RawJob]:
+    def fetch(self, filters: SearchFilters, options: dict | None = None) -> list[RawJob]:
         data = json.loads(FIXTURES.read_text())
         jobs = [*map(self._feed_a, data["feed_a"]), *map(self._feed_b, data["feed_b"]),
                 *map(self._feed_c, data["feed_c"])]
@@ -108,5 +108,5 @@ class MockAdapter(Adapter):
 class MockBrokenAdapter(Adapter):
     code = "mock_broken"
 
-    def fetch(self, filters: SearchFilters) -> list[RawJob]:
+    def fetch(self, filters: SearchFilters, options: dict | None = None) -> list[RawJob]:
         raise ConnectionError("Simulated upstream outage (mock_broken)")

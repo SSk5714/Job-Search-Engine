@@ -13,16 +13,21 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from jobpilot.agents.discovery.adapters import SOURCES, AdapterNotImplemented, get_adapter
-from jobpilot.config import get_settings
+from jobpilot.agents.discovery.adapters import (
+    SOURCES,
+    AdapterConfigError,
+    AdapterNotImplemented,
+    get_adapter,
+    resolve_url,
+)
+from jobpilot.agents.discovery.http import SourceHTTPError
 from jobpilot.db import models as m
 from jobpilot.db.session import SessionLocal
 from jobpilot.domain import transitions
 from jobpilot.domain.dedup import fingerprint, normalize_url
 from jobpilot.domain.errors import DomainError
-from jobpilot.domain.profile import current_version, profile_view
-from jobpilot.domain.scoring import DEFAULT_WEIGHTS, detect_languages, detect_seniority, extract_skills, score_job
-from jobpilot.domain.states import Actor, State
+from jobpilot.domain.scoring import detect_languages, detect_seniority, extract_skills
+from jobpilot.orchestrator import matching
 from jobpilot.schemas.agents import RawJob, SearchFilters
 
 log = logging.getLogger("jobpilot.orchestrator")
@@ -105,38 +110,6 @@ def _ingest(db: Session, source: m.JobSource, raw: RawJob, run_id: uuid.UUID) ->
     return "new"
 
 
-def classify_pending(db: Session, preferred_countries: list[str] | None = None) -> int:
-    """Evaluate every `discovered` application against the current verified profile."""
-    version = current_version(db)
-    view = profile_view(version)
-    model_version = get_settings().matching_model_version
-    apps = db.scalars(select(m.Application).where(m.Application.state == State.DISCOVERED.value)).all()
-    for app in apps:
-        job = app.job
-        result = score_job(
-            {"title": job.title, "description_text": job.description_text, "skills": job.skills,
-             "seniority": job.seniority, "language_reqs": job.language_reqs, "country": job.country,
-             "work_mode": job.work_mode},
-            view, DEFAULT_WEIGHTS, preferred_countries,
-        )
-        exists = db.scalar(select(m.JobMatchEvaluation).where(
-            m.JobMatchEvaluation.job_id == job.id,
-            m.JobMatchEvaluation.profile_version_id == version.id,
-            m.JobMatchEvaluation.model_version == model_version,
-        ))
-        if exists is None:
-            db.add(m.JobMatchEvaluation(
-                job_id=job.id, profile_version_id=version.id, model_version=model_version,
-                weights=DEFAULT_WEIGHTS, breakdown=result.breakdown, score=result.score, track=result.track,
-                seniority=result.seniority, recommendation=result.recommendation, eligibility=result.eligibility,
-                matched_skills=result.matched_skills, missing_skills=result.missing_skills,
-                explanation=result.explanation, evidence=result.evidence,
-            ))
-            db.flush()
-        transitions.apply(db, app.id, State.CLASSIFIED, Actor.ORCHESTRATOR, reason=f"{model_version} evaluation")
-    return len(apps)
-
-
 def execute_run(run_id: uuid.UUID) -> dict:
     """Run every source of the config in isolation; persist per source."""
     db = SessionLocal()
@@ -163,13 +136,18 @@ def execute_run(run_id: uuid.UUID) -> dict:
                 if source is None:
                     raise AdapterNotImplemented(code)
                 adapter = get_adapter(code)
-                raw_jobs = adapter.fetch(filters)
+                options = dict((config.source_options or {}).get(code, {}))
+                options["_known_external_ids"] = list(db.scalars(
+                    select(m.Job.external_id).where(m.Job.source_id == source.id, m.Job.external_id.is_not(None))))
+                raw_jobs = adapter.fetch(filters, options)
                 src_counts = {"fetched": len(raw_jobs)}
                 for raw in raw_jobs:
                     outcome = _ingest(db, source, raw, run.id)
                     src_counts[outcome] = src_counts.get(outcome, 0) + 1
                 agent_run.status = "succeeded"
                 agent_run.output_summary = src_counts
+                if source.access_mode != "mock" and raw_jobs and source.live_verified_at is None:
+                    source.live_verified_at = datetime.now(UTC)  # first proof the live integration works
                 db.add(m.TaskAttempt(agent_run_id=agent_run.id, attempt_no=1, status="succeeded",
                                      duration_ms=int((time.monotonic() - started) * 1000)))
                 db.commit()
@@ -180,7 +158,14 @@ def execute_run(run_id: uuid.UUID) -> dict:
             except Exception as exc:  # one broken source never stops the run
                 db.rollback()
                 failed_sources += 1
-                error_code = "not_implemented" if isinstance(exc, AdapterNotImplemented) else type(exc).__name__
+                if isinstance(exc, AdapterNotImplemented):
+                    error_code = "not_implemented"
+                elif isinstance(exc, AdapterConfigError):
+                    error_code = "needs_configuration"
+                elif isinstance(exc, SourceHTTPError):
+                    error_code = exc.code
+                else:
+                    error_code = type(exc).__name__
                 agent_run = db.merge(agent_run)
                 agent_run.status = "failed"
                 agent_run.output_summary = {"error": str(exc)[:500]}
@@ -195,9 +180,9 @@ def execute_run(run_id: uuid.UUID) -> dict:
                 agent_run.finished_at = datetime.now(UTC)
                 db.commit()
 
-        classified = 0
+        classified: dict = {"classified": 0}
         try:
-            classified = classify_pending(db, filters.countries)
+            classified = matching.classify_pending(db, run.id, filters.countries)
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -209,7 +194,8 @@ def execute_run(run_id: uuid.UUID) -> dict:
         run = db.get(m.SearchRun, run_id)
         run.status = "completed" if failed_sources == 0 else ("partial" if ok_sources else "failed")
         run.finished_at = datetime.now(UTC)
-        run.summary = {**counts, "classified": classified, "sources": per_source}
+        run.summary = {**counts, "classified": classified.get("classified", 0), "matching": classified,
+                       "sources": per_source}
         db.commit()
         return run.summary
     except Exception as exc:
@@ -225,3 +211,52 @@ def execute_run(run_id: uuid.UUID) -> dict:
         raise
     finally:
         db.close()
+
+
+def recheck_availability(db: Session, job: m.Job) -> str:
+    """Ask the source whether the listing is still open. Unknown never counts as open."""
+    now = datetime.now(UTC)
+    status = "unknown"
+    try:
+        adapter = get_adapter(job.source.code)
+        result = adapter.check_available(job.url, job.external_id)
+        status = {True: "open", False: "closed", None: "unknown"}[result]
+    except (AdapterNotImplemented, SourceHTTPError) as exc:
+        db.add(m.ErrorEvent(component=f"availability:{job.source.code}", severity="info",
+                            code=getattr(exc, "code", type(exc).__name__), message=str(exc)[:500],
+                            context={"job_id": str(job.id)}))
+    if job.source.access_mode == "mock":
+        status = job.availability  # fixtures are static
+    job.availability = status if status != "unknown" else job.availability
+    job.availability_checked_at = now if status != "unknown" else job.availability_checked_at
+    db.flush()
+    return status
+
+
+def import_url(db: Session, url: str, manual: dict) -> tuple[m.Job, str]:
+    """Add one job from a pasted URL. API-backed sources are fetched; other sites are
+    never fetched, so their details must be supplied by the user."""
+    code, ref = resolve_url(url)
+    raw = None
+    if ref is not None:
+        try:
+            raw = get_adapter(code).fetch_one(ref)
+        except SourceHTTPError as exc:
+            if not manual.get("title"):
+                raise DomainError("source_unreachable", f"Could not fetch the posting ({exc.code}); "
+                                  "paste the title, company and description instead", status_code=422)
+    if raw is None:
+        missing = [k for k in ("title", "company") if not manual.get(k)]
+        if missing:
+            raise DomainError("details_required", f"{SOURCES[code][0]} pages are not fetched automatically; "
+                              f"fill in: {', '.join(missing)}", {"source": code, "missing": missing}, status_code=422)
+        raw = RawJob(url=url, company=manual["company"], title=manual["title"], city=manual.get("city"),
+                     country=(manual.get("country") or None), location_text=manual.get("city") or "",
+                     work_mode=manual.get("work_mode"), description_text=manual.get("description") or "")
+    sync_sources(db)
+    source = db.scalar(select(m.JobSource).where(m.JobSource.code == code))
+    outcome = _ingest(db, source, raw, run_id=None)
+    job = db.scalar(select(m.Job).where(m.Job.url_normalized == normalize_url(str(raw.url))))
+    if ref is not None and outcome == "new" and source.live_verified_at is None:
+        source.live_verified_at = datetime.now(UTC)
+    return job, outcome

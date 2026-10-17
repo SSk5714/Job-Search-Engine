@@ -1,22 +1,36 @@
 # Integrations: implemented, mocked, pending
 
-Nothing in this list is reported as working unless a test exercises it.
+Nothing here is reported as working unless a test exercises it. Source labels in the app follow
+the same rule: **Untested** adapters become **Automated** only after their first successful live run.
 
 | Integration | Status | Evidence |
 | --- | --- | --- |
-| PostgreSQL 16 | Implemented | All tests run on Postgres via the Alembic migration |
-| Redis + Celery worker | Implemented | Manual smoke test: run queued, executed by worker, 7 jobs classified |
-| In-process runs (no Redis) | Implemented | Integration tests |
-| Mock job board (3 feed formats) | Mocked | `tests/integration/test_discovery.py` |
-| Broken-source simulation | Mocked | `test_one_broken_source_does_not_stop_the_others` |
-| Rule-based matching `rules-v0` | Implemented (placeholder for Claude) | `tests/unit/test_scoring.py` |
-| Bundesagentur für Arbeit Jobsuche | Pending (Phase 2) | Shown as Planned; enabling is refused |
-| Greenhouse / Lever / Personio | Pending (Phase 2) | Shown as Planned |
-| StepStone, Indeed, XING, LinkedIn, GermanTechJobs | Manual only (Phase 2 URL import) | Shown as Manual |
-| Claude API | Pending (Phase 2) | Health shows `not_configured` |
+| PostgreSQL 16 | Implemented | All tests run on Postgres via the Alembic migrations |
+| Redis + Celery worker | Implemented | Live stack in the browser walkthrough |
+| Mock job board (3 feed formats) | Mocked | `test_discovery.py` |
+| Bundesagentur für Arbeit Jobsuche | Implemented, **live-untested** | `test_adapters.py` with recorded responses. Endpoints and the public key come from the community docs at github.com/bundesAPI/jobsuche-api; the agency publishes no official API terms. |
+| Greenhouse Job Board API | Implemented, **live-untested** | Recorded responses matching the real API shape (fetched 2026-10-17) |
+| Lever Postings API (global and EU) | Implemented, **live-untested** | Recorded responses matching the real API shape |
+| Personio XML feed | Implemented, **live-untested** | Recorded feed; parsed with defusedxml |
+| Manual URL import | Implemented | `test_phase2_api.py`; LinkedIn, StepStone, Indeed, XING and GermanTechJobs pages are never fetched |
+| Availability recheck | Implemented for BA, Greenhouse, Lever, Personio | `test_phase2_api.py` |
+| Claude API (structured outputs, `claude-haiku-5-5` default) | Implemented, **live-untested** | Fake provider plus stubbed SDK client; set `JOBPILOT_ANTHROPIC_API_KEY` to activate |
+| Rule-based matching `rules-v0` | Implemented | Fallback whenever Claude is off, over budget or failing |
 | DOCX/PDF generation | Pending (Phase 3) | — |
 | Playwright form preparation | Pending (Phase 4) | — |
 | Scheduler (Celery beat) | Pending (Phase 5) | Health shows `not_implemented` |
 | Independent monitor + alerts | Pending (Phase 5) | Health shows `not_implemented` |
 | Email notifications | Pending (Phase 5) | — |
-| Docker images | Written, not built here | No Docker daemon in the build environment; `docker compose config` validates |
+| Docker images | Written, not built here | No Docker daemon in the build environment |
+
+## Setting up the real sources
+
+In **Job Discovery**, tick a source and fill in its options:
+
+- **Bundesagentur für Arbeit**: works with no setup. Uses your keywords (or track defaults such as "Android Entwickler"), your cities and a radius. Germany only.
+- **Greenhouse**: board tokens, the part after `job-boards.greenhouse.io/` in a company's careers URL.
+- **Lever**: site names from `jobs.lever.co/<site>`; choose EU for `jobs.eu.lever.co`.
+- **Personio**: company subdomains from `<company>.jobs.personio.de`.
+
+Company boards return all of a company's openings. JobPilot keeps technical roles in your
+countries (and your keywords, if set).

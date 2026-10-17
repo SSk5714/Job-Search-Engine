@@ -7,6 +7,17 @@ import { ErrorBox, Loading, errorText, useLoad } from "@/components/ui";
 
 const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
+const OPTION_FIELDS: Record<string, { key: string; label: string; placeholder: string; kind?: "list" | "number" | "region" }[]> = {
+  greenhouse: [{ key: "boards", label: "Board tokens", placeholder: "e.g. gitlab, celonis", kind: "list" }],
+  lever: [
+    { key: "sites", label: "Site names", placeholder: "e.g. exampleco", kind: "list" },
+    { key: "region", label: "Region", placeholder: "", kind: "region" },
+  ],
+  personio: [{ key: "companies", label: "Company subdomains", placeholder: "e.g. acme for acme.jobs.personio.de", kind: "list" }],
+  ba_jobsuche: [{ key: "radius_km", label: "Radius around each city (km)", placeholder: "50", kind: "number" }],
+};
+const LABEL_TONE: Record<string, string> = { Automated: "good", Untested: "warn", Mock: "accent" };
+
 function RunStatus({ run }: { run: SearchRun }) {
   const tone = run.status === "completed" ? "good" : run.status === "running" ? "accent" : run.status === "partial" ? "warn" : "bad";
   const s = run.summary as Record<string, number>;
@@ -111,22 +122,52 @@ export default function DiscoveryPage() {
         <div className="small muted" style={{ marginBottom: 6 }}>Sources</div>
         {sources.data ? (
           <div className="list">
-            {sources.data.map((s) => {
+            {sources.data.filter((s) => s.code !== "mock_broken").map((s) => {
               const usable = s.implemented;
               const on = draft.source_codes.includes(s.code);
+              const opts = (draft.source_options?.[s.code] ?? {}) as Record<string, unknown>;
+              const setOpt = (key: string, value: unknown) => setDraft({
+                ...draft, source_options: { ...(draft.source_options ?? {}), [s.code]: { ...opts, [key]: value } },
+              });
               return (
-                <label key={s.code} className="row" style={{ display: "flex", color: "var(--ink)", opacity: usable ? 1 : 0.65 }}>
-                  <input type="checkbox" style={{ width: "auto" }} disabled={!usable} checked={on}
-                    onChange={() => setDraft({ ...draft, source_codes: toggle(draft.source_codes, s.code) })} />
-                  <span style={{ minWidth: 240 }}>{s.name}</span>
-                  <span className={`badge ${s.label === "Automated" ? "good" : s.label === "Mock" ? "accent" : ""}`}>{s.label}</span>
-                  <span className="small muted">{s.notes}</span>
-                </label>
+                <div key={s.code}>
+                  <label className="row" style={{ display: "flex", color: "var(--ink)", opacity: usable ? 1 : 0.65 }}>
+                    <input type="checkbox" style={{ width: "auto" }} disabled={!usable} checked={on}
+                      onChange={() => setDraft({ ...draft, source_codes: toggle(draft.source_codes, s.code) })} />
+                    <span style={{ minWidth: 240 }}>{s.name}</span>
+                    <span className={`badge ${LABEL_TONE[s.label] ?? ""}`}
+                      title={s.label === "Untested" ? "Built and tested against recorded responses; becomes Automated after its first successful live run" : undefined}>
+                      {s.label}</span>
+                    <span className="small muted">{s.notes}</span>
+                  </label>
+                  {on && OPTION_FIELDS[s.code] && (
+                    <div className="form-grid" style={{ margin: "6px 0 4px 28px" }}>
+                      {OPTION_FIELDS[s.code].map((f) => (
+                        <label key={f.key}>{f.label}
+                          {f.kind === "region" ? (
+                            <select value={(opts[f.key] as string) ?? "global"} onChange={(e) => setOpt(f.key, e.target.value)}>
+                              <option value="global">Global (api.lever.co)</option><option value="eu">EU (api.eu.lever.co)</option>
+                            </select>
+                          ) : f.kind === "number" ? (
+                            <input type="number" min={0} placeholder={f.placeholder} value={(opts[f.key] as number) ?? ""}
+                              onChange={(e) => setOpt(f.key, e.target.value ? Number(e.target.value) : undefined)} />
+                          ) : (
+                            <input placeholder={f.placeholder} value={((opts[f.key] as string[]) ?? []).join(", ")}
+                              onChange={(e) => setOpt(f.key, list(e.target.value))} />
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
         ) : <Loading />}
-        <p className="small muted" style={{ marginTop: 10 }}>Scheduled searches arrive in Phase 5; for now run searches manually.</p>
+        <p className="small muted" style={{ marginTop: 10 }}>
+          Manual-only sites (LinkedIn, StepStone, Indeed, XING) are added one at a time with “Add job from URL” in Job Review.
+          Scheduled searches arrive in Phase 5.
+        </p>
       </section>
 
       <section className="card">

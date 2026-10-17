@@ -90,9 +90,16 @@ def health_details(db: Session = Depends(get_db)):
         checks["queue"] = {"status": "not_configured", "detail": "Runs execute in-process (no Redis URL)"}
     checks["scheduler"] = {"status": "not_implemented", "detail": "Scheduled searches arrive in Phase 5"}
     checks["monitor"] = {"status": "not_implemented", "detail": "Independent monitor arrives in Phase 5"}
-    checks["claude_api"] = {
-        "status": "not_configured" if not get_settings().anthropic_api_key else "configured_untested",
-        "detail": "Used from Phase 2",
-    }
+    if not get_settings().anthropic_api_key:
+        checks["claude_api"] = {"status": "not_configured", "detail": "Set JOBPILOT_ANTHROPIC_API_KEY; rules-v0 is used meanwhile"}
+    else:
+        last = db.scalar(select(m.TaskAttempt).join(m.AgentRun).where(
+            m.AgentRun.agent == "matching", m.TaskAttempt.ai_tokens_in.is_not(None))
+            .order_by(m.TaskAttempt.created_at.desc()).limit(1))
+        if last is None:
+            checks["claude_api"] = {"status": "configured_untested", "detail": "No Claude call made yet"}
+        else:
+            checks["claude_api"] = {"status": "ok" if last.status == "succeeded" else "degraded",
+                                    "detail": f"Last call {last.status}" + (f" ({last.error_code})" if last.error_code else "")}
     sources = [s.source(x) for x in db.scalars(select(m.JobSource).order_by(m.JobSource.code)).all()]
     return {"checks": checks, "sources": sources}

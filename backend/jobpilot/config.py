@@ -20,11 +20,16 @@ class Settings(BaseSettings):
 
     # AI (used from Phase 2; the key never leaves the server)
     anthropic_api_key: str | None = None
-    claude_model: str | None = None
+    claude_model: str | None = None  # default: claude-haiku-5-5
+    ai_timeout_s: float = 60.0
+    ai_prices: dict[str, list[float]] = {}  # override: {"model-id": [usd_per_mtok_in, usd_per_mtok_out]}
+
+    # Outbound HTTP to job sources
+    http_user_agent: str = "JobPilotEurope/0.2 (personal job search; contact via repository)"
+    http_timeout_s: float = 30.0
 
     # Workflow
     availability_recheck_hours: int = 24
-    matching_model_version: str = "rules-v0"
 
 
 @lru_cache

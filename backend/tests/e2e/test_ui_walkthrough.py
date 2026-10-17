@@ -69,7 +69,7 @@ def test_walkthrough(page):
 
     # Job Review: approve the top job
     page.get_by_role("link", name="Job Review").click()
-    page.get_by_text("Rule-based", exact=False).first.wait_for()
+    page.get_by_text("Scores use only verified profile facts").wait_for()
     first = page.locator("article.card").first
     title = first.locator("strong").first.inner_text()
     first.get_by_role("button", name="Details").click()
@@ -92,3 +92,23 @@ def test_walkthrough(page):
     page.get_by_role("link", name="Dashboard").click()
     page.get_by_text("Last search completed").wait_for()
     shot(page, "06-dashboard")
+
+    # Phase 2: add a LinkedIn job by hand (the page itself is never fetched)
+    page.get_by_role("link", name="Job Review").click()
+    page.get_by_role("button", name="Add job from URL").click()
+    page.get_by_label("Job URL").fill("https://www.linkedin.com/jobs/view/4099999999")
+    page.get_by_label("Job title").fill("Junior Kotlin Developer")
+    page.get_by_label("Company").fill("Example Apps Leipzig GmbH")
+    page.get_by_label("City").fill("Leipzig")
+    page.get_by_label("Country (ISO)").fill("DE")
+    page.get_by_label("Job description (paste)").fill("Kotlin and Android with Gradle. Junior role, English.")
+    page.get_by_role("button", name="Add and score").click()
+    page.get_by_text("Added: Junior Kotlin Developer").wait_for()
+    page.get_by_text("Junior Kotlin Developer", exact=True).first.wait_for()
+    shot(page, "07-import")
+
+    # Phase 2: matching settings are visible and explain the matcher in use
+    page.get_by_role("link", name="Settings & Health").click()
+    page.get_by_role("heading", name="Matching").wait_for()
+    page.get_by_text("Score weights (must total 100; now 100)").wait_for()
+    shot(page, "08-matching-settings")

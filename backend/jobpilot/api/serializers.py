@@ -16,6 +16,7 @@ def evaluation(e: m.JobMatchEvaluation | None) -> dict | None:
             "seniority": e.seniority, "recommendation": e.recommendation, "eligibility": e.eligibility,
             "matched_skills": e.matched_skills, "missing_skills": e.missing_skills,
             "explanation": e.explanation, "evidence": e.evidence, "model_version": e.model_version,
+            "matcher": e.matcher,
             "profile_version_id": e.profile_version_id, "created_at": e.created_at}
 
 
@@ -62,9 +63,11 @@ def source(s: m.JobSource) -> dict:
         label = "Mock"
     elif s.access_mode == "manual":
         label = "Manual"
-    elif s.implemented:
+    elif s.implemented and s.live_verified_at:
         label = "Automated"
+    elif s.implemented:
+        label = "Untested"  # built and tested against recorded responses, never run live
     else:
         label = "Planned"
     return {"code": s.code, "name": s.name, "access_mode": s.access_mode, "implemented": s.implemented,
-            "enabled": s.enabled, "label": label, "notes": s.notes}
+            "enabled": s.enabled, "label": label, "notes": s.notes, "live_verified_at": s.live_verified_at}

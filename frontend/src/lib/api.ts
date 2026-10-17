@@ -14,12 +14,23 @@ export interface Evaluation {
   track: string;
   seniority: string;
   recommendation: "apply" | "review" | "low_priority" | "reject";
-  eligibility: { failed: string[]; uncertain: string[] };
+  eligibility: { failed: string[]; uncertain: string[]; requirements?: Requirement[];
+                 validation?: { dropped_skill_matches?: string[] } };
   matched_skills: string[];
   missing_skills: string[];
   explanation: string;
-  evidence: { criterion: string; job_quote: string; fact_id: string | null }[];
+  evidence: { criterion: string; job_quote: string; fact_id: string | null; skill?: string }[];
   model_version: string;
+  matcher?: "rules" | "claude";
+}
+
+export interface Requirement {
+  text: string;
+  category: string;
+  mandatory: boolean;
+  status: "met" | "not_met" | "unknown";
+  fact_id: string | null;
+  job_quote: string;
 }
 
 export interface Job {
@@ -118,6 +129,7 @@ export interface SearchConfig {
   name: string;
   filters: Filters;
   source_codes: string[];
+  source_options: Record<string, Record<string, unknown>>;
   cron: string | null;
   allow_overlap: boolean;
   enabled: boolean;
@@ -139,8 +151,35 @@ export interface Source {
   access_mode: string;
   implemented: boolean;
   enabled: boolean;
-  label: "Automated" | "Manual" | "Mock" | "Planned";
+  label: "Automated" | "Untested" | "Manual" | "Mock" | "Planned";
   notes: string | null;
+  live_verified_at: string | null;
+}
+
+export interface ScoringSettings {
+  weights: Record<"technical" | "experience" | "track" | "language" | "location", number>;
+  thresholds: { apply: number; review: number };
+  version_tag?: string;
+}
+
+export interface AISettings {
+  matcher: "auto" | "claude" | "rules";
+  max_ai_jobs_per_run: number;
+  daily_budget_usd: number;
+  api_key_configured?: boolean;
+  model?: string;
+  active_matcher?: "claude" | "rules";
+  spent_today_usd?: number;
+}
+
+export interface ImportIn {
+  url: string;
+  title?: string;
+  company?: string;
+  city?: string;
+  country?: string;
+  work_mode?: "onsite" | "hybrid" | "remote";
+  description?: string;
 }
 
 export interface Dashboard {
@@ -224,6 +263,13 @@ export const api = {
   jobs: (p: { state?: string; track?: string; min_score?: number; q?: string } = {}) =>
     request<{ total: number; items: Job[] }>("GET", `/jobs${qs(p)}`),
   job: (id: string) => request<Job>("GET", `/jobs/${id}`),
+  importUrl: (body: ImportIn) => request<{ outcome: string; job: Job }>("POST", "/jobs/import-url", body, true),
+  recheck: (id: string) => request<Job & { availability: string }>("POST", `/jobs/${id}/recheck`, {}),
+  rescore: () => request<{ rescored: number; claude?: number; rules?: number }>("POST", "/jobs/rescore", {}, true),
+  scoring: () => request<ScoringSettings>("GET", "/settings/scoring"),
+  saveScoring: (s: ScoringSettings) => request<ScoringSettings>("PUT", "/settings/scoring", { weights: s.weights, thresholds: s.thresholds }),
+  ai: () => request<AISettings>("GET", "/settings/ai"),
+  saveAi: (a: AISettings) => request<AISettings>("PUT", "/settings/ai", { matcher: a.matcher, max_ai_jobs_per_run: a.max_ai_jobs_per_run, daily_budget_usd: a.daily_budget_usd }),
   decide: (id: string, decision: "approve" | "reject" | "later", reason?: string) =>
     request<Job>("POST", `/jobs/${id}/decision`, { decision, reason }, true),
 

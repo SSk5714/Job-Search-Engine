@@ -51,6 +51,8 @@ class ProfileView:
     eligibility: dict[str, tuple[str, str]]  # key -> (value, fact id)
     languages: dict[str, tuple[str, str]]  # language -> (level, fact id)
     unverified_count: int = 0
+    other_fact_ids: list[str] = field(default_factory=list)  # verified education/employment/project facts
+    facts_for_ai: list[dict] = field(default_factory=list)  # verified facts as {id, category, key, value, context}
 
 
 @dataclass
@@ -128,54 +130,88 @@ def _quote(text: str, needle: str, width: int = 60) -> str:
     return text[start : start + width].replace("\n", " ").strip()
 
 
-def score_job(job: dict, profile: ProfileView, weights: dict | None = None,
-              preferred_countries: list[str] | None = None) -> Result:
-    w = weights or DEFAULT_WEIGHTS
+@dataclass
+class Extraction:
+    """What a matcher read from a posting. Scores are computed from this by code."""
+
+    track: str
+    seniority: str
+    required_skills: list[str]
+    matched: dict[str, tuple[str, str]]  # skill -> (verified fact id, quote from the job)
+    language_reqs: list[dict]
+    requirements: list[dict] = field(default_factory=list)  # {text, category, status, fact_id, job_quote}
+    summary: str = ""
+    matcher: str = "rules"
+
+
+SENIORITY_SHARE = {"junior": 1.0, "intern": 0.6, "student": 0.6, "unknown": 0.5, "mid": 0.45, "senior": 0.0}
+
+
+def rules_extract(job: dict, profile: ProfileView) -> Extraction:
+    """`rules-v0`: keyword extraction, no AI."""
     desc = job.get("description_text") or ""
     title = job.get("title") or ""
     full = f"{title}\n{desc}"
+    required = job.get("skills") or extract_skills(full)
+    return Extraction(
+        track=detect_track(title, desc),
+        seniority=job.get("seniority") or detect_seniority(title, desc),
+        required_skills=required,
+        matched={s: (profile.skills[s], _quote(full, s)) for s in required if s in profile.skills},
+        language_reqs=job.get("language_reqs") or detect_languages(desc),
+    )
+
+
+def _cefr(level: str) -> int | None:
+    level = (level or "").lower().strip()
+    return CEFR.index(level) if level in CEFR else None
+
+
+def score_extraction(ex: Extraction, job: dict, profile: ProfileView, weights: dict | None = None,
+                     thresholds: dict | None = None, preferred_countries: list[str] | None = None) -> Result:
+    """Deterministic arithmetic and hard eligibility rules, shared by every matcher."""
+    w = weights or DEFAULT_WEIGHTS
+    th = thresholds or THRESHOLDS
+    desc = job.get("description_text") or ""
     evidence: list[dict] = []
     uncertain: list[str] = []
     failed: list[str] = []
 
-    # Technical skills
-    required = job.get("skills") or extract_skills(full)
-    matched = [s for s in required if s in profile.skills]
-    missing = [s for s in required if s not in profile.skills]
+    # Technical skills: share of required skills backed by a verified fact
+    required = list(dict.fromkeys(ex.required_skills))
+    matched = [s for s in required if s in ex.matched]
+    missing = [s for s in required if s not in ex.matched]
     tech = round(w["technical"] * len(matched) / len(required)) if required else 0
     for s in matched:
-        evidence.append({"criterion": "technical", "job_quote": _quote(full, s), "fact_id": profile.skills[s]})
+        fact_id, quote = ex.matched[s]
+        evidence.append({"criterion": "technical", "job_quote": quote, "fact_id": fact_id, "skill": s})
     if not required:
         uncertain.append("No recognizable technical skills in the description")
 
-    # Experience / seniority (candidate: about 10 months professional experience)
-    seniority = job.get("seniority") or detect_seniority(title, desc)
-    exp_share = {"junior": 1.0, "student": 0.6, "unknown": 0.5, "mid": 0.45, "senior": 0.0}[seniority]
-    exp = round(w["experience"] * exp_share)
-    evidence.append({"criterion": "experience", "job_quote": title, "fact_id": None})
+    seniority = ex.seniority if ex.seniority in SENIORITY_SHARE else "unknown"
+    exp = round(w["experience"] * SENIORITY_SHARE[seniority])
+    evidence.append({"criterion": "experience", "job_quote": job.get("title") or "", "fact_id": None})
 
-    # Track
-    track = detect_track(title, desc)
+    track = ex.track if ex.track in ("A", "B", "C", "D", "other") else "other"
     trk = w["track"] if track in ("A", "B", "C", "D") else round(w["track"] * 0.25)
 
-    # Language
-    lang_reqs = job.get("language_reqs") or detect_languages(desc)
     lang = w["language"]
-    for req in lang_reqs:
-        have = profile.languages.get(req["language"])
-        if req.get("mandatory"):
-            if have is None:
-                lang = round(w["language"] * 0.5)
-                uncertain.append(f"{req['language'].title()} ({req['level']}) required; your level is not verified")
-            elif CEFR.index(have[0].lower()) < CEFR.index(req["level"].lower() if req["level"].lower() in CEFR
-                                                               else "c1") if have[0].lower() in CEFR else False:
-                lang = 0
-                failed.append(f"{req['language'].title()} ({req['level']}) required; verified level is {have[0]}")
-            else:
-                evidence.append({"criterion": "language", "job_quote": _quote(desc, req["language"]),
-                                 "fact_id": have[1]})
+    for req in ex.language_reqs:
+        if not req.get("mandatory"):
+            continue
+        name = req["language"].lower()
+        have = profile.languages.get(name)
+        need = _cefr(req.get("level", "")) if _cefr(req.get("level", "")) is not None else _cefr("c1")
+        if have is None:
+            lang = min(lang, round(w["language"] * 0.5))
+            uncertain.append(f"{name.title()} ({req.get('level', 'level unspecified')}) required; "
+                             "your level is not verified")
+        elif _cefr(have[0]) is not None and _cefr(have[0]) < need:
+            lang = 0
+            failed.append(f"{name.title()} ({req.get('level')}) required; verified level is {have[0]}")
+        else:
+            evidence.append({"criterion": "language", "job_quote": _quote(desc, name), "fact_id": have[1]})
 
-    # Location / arrangement
     country = (job.get("country") or "").upper()
     prefs = [c.upper() for c in (preferred_countries or ["DE"])]
     if job.get("work_mode") == "remote" and country in EU_COUNTRIES:
@@ -190,34 +226,49 @@ def score_job(job: dict, profile: ProfileView, weights: dict | None = None,
             uncertain.append("Country unknown")
 
     # Hard eligibility rules (separate from the score)
-    if seniority == "student" or track == "D":
+    if seniority in ("student", "intern") or track == "D":
         enrol = profile.eligibility.get("enrolment_status")
         if enrol is None or not enrol[0]:
             uncertain.append("Student position: your enrolment status is not verified")
         elif enrol[0].lower() not in ("enrolled", "immatrikuliert"):
             failed.append(f"Student position requires enrolment; verified status is '{enrol[0]}'")
-    if any(re.search(p, desc, re.I) for p in WORK_AUTH_PATTERNS):
-        auth = profile.eligibility.get("work_authorization")
-        if auth is None or not auth[0]:
-            uncertain.append("Listing mentions work-authorization limits; yours is not verified")
+    mentions_auth = any(re.search(p, desc, re.I) for p in WORK_AUTH_PATTERNS) or any(
+        r.get("category") == "work_authorization" for r in ex.requirements)
+    if mentions_auth and not (profile.eligibility.get("work_authorization") or ("", ""))[0]:
+        uncertain.append("Listing mentions work-authorization limits; yours is not verified")
+    verified_ids = set(profile.skills.values()) | {v[1] for v in profile.eligibility.values()} | {
+        v[1] for v in profile.languages.values()} | set(profile.other_fact_ids)
+    for r in ex.requirements:
+        text = r.get("text", "")[:200]
+        if r.get("status") == "not_met" and r.get("fact_id") in verified_ids:
+            failed.append(f"Mandatory requirement not met: {text}")
+        elif r.get("status") != "met" and r.get("category") in ("education", "experience", "other", "skill"):
+            uncertain.append(f"Check requirement: {text}")
+        elif r.get("status") == "met" and r.get("fact_id") in verified_ids:
+            evidence.append({"criterion": "requirement", "job_quote": r.get("job_quote", ""), "fact_id": r["fact_id"]})
+    if seniority == "senior":
+        uncertain.append("Senior role: asks for more experience than your verified profile shows")
 
     breakdown = {"technical": tech, "experience": exp, "track": trk, "language": lang, "location": loc}
     score = int(sum(breakdown.values()))
+    uncertain = list(dict.fromkeys(uncertain))
+    failed = list(dict.fromkeys(failed))
 
-    if seniority == "senior":
-        uncertain.append("Senior role: asks for more experience than your verified ~10 months")
     if failed:
         rec = "reject"
     elif seniority == "senior":
         rec = "low_priority"
-    elif score >= THRESHOLDS["apply"]:
+    elif score >= th["apply"]:
         rec = "review" if uncertain else "apply"
-    elif score >= THRESHOLDS["review"]:
+    elif score >= th["review"]:
         rec = "review"
     else:
         rec = "low_priority"
 
-    parts = [f"Rule-based score {score}/100 (track {track}, {seniority})."]
+    label = "Claude-assisted" if ex.matcher == "claude" else "Rule-based"
+    parts = [f"{label} score {score}/100 (track {track}, {seniority})."]
+    if ex.summary:
+        parts.append(ex.summary.strip())
     if matched:
         parts.append(f"Matches verified skills: {', '.join(matched)}.")
     if missing:
@@ -225,15 +276,12 @@ def score_job(job: dict, profile: ProfileView, weights: dict | None = None,
     if profile.unverified_count:
         parts.append(f"{profile.unverified_count} unverified profile facts were ignored.")
 
-    return Result(
-        score=score,
-        breakdown=breakdown,
-        track=track,
-        seniority=seniority,
-        recommendation=rec,
-        eligibility={"failed": failed, "uncertain": uncertain},
-        matched_skills=matched,
-        missing_skills=missing,
-        explanation=" ".join(parts),
-        evidence=evidence,
-    )
+    return Result(score=score, breakdown=breakdown, track=track, seniority=seniority, recommendation=rec,
+                  eligibility={"failed": failed, "uncertain": uncertain}, matched_skills=matched,
+                  missing_skills=missing, explanation=" ".join(parts), evidence=evidence)
+
+
+def score_job(job: dict, profile: ProfileView, weights: dict | None = None,
+              preferred_countries: list[str] | None = None, thresholds: dict | None = None) -> Result:
+    """Rule-based matcher end to end (`rules-v0`)."""
+    return score_extraction(rules_extract(job, profile), job, profile, weights, thresholds, preferred_countries)

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workzag-jobs>
+  <position>
+    <id>1500001</id>
+    <subcompany>Example Embedded GmbH</subcompany>
+    <office>Chemnitz</office>
+    <department>R&amp;D</department>
+    <recruitingCategory>Engineering</recruitingCategory>
+    <name>Werkstudent Embedded Software (m/w/d)</name>
+    <jobDescriptions>
+      <jobDescription>
+        <name>Your tasks</name>
+        <value><![CDATA[<ul><li>C++ on Linux</li><li>Python test tools</li></ul>]]></value>
+      </jobDescription>
+      <jobDescription>
+        <name>Your profile</name>
+        <value><![CDATA[<p>Enrolled student (Immatrikulation), German or English.</p>]]></value>
+      </jobDescription>
+    </jobDescriptions>
+    <employmentType>permanent</employmentType>
+    <seniority>student</seniority>
+    <schedule>part-time</schedule>
+    <createdAt>2026-10-13T08:00:00+00:00</createdAt>
+  </position>
+  <position>
+    <id>1500002</id>
+    <subcompany>Example Embedded GmbH</subcompany>
+    <office>Chemnitz</office>
+    <name>Office Manager</name>
+    <jobDescriptions><jobDescription><name>Tasks</name><value><![CDATA[<p>Office.</p>]]></value></jobDescription></jobDescriptions>
+    <createdAt>2026-10-13T08:00:00+00:00</createdAt>
+  </position>
+</workzag-jobs>

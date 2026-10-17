@@ -46,7 +46,7 @@ def test_every_new_job_is_classified_with_score_explanation_and_evidence(api, db
         assert ev is not None
         assert 0 <= ev.score <= 100 and ev.explanation and isinstance(ev.evidence, list) and ev.evidence
         assert sum(ev.breakdown.values()) == ev.score
-        assert ev.model_version == "rules-v0"
+        assert ev.model_version.startswith("rules-v0")
 
 
 def test_one_broken_source_does_not_stop_the_others(api, db):
@@ -62,22 +62,30 @@ def test_one_broken_source_does_not_stop_the_others(api, db):
     assert err is not None and err.code == "ConnectionError"
 
 
-def test_unimplemented_source_is_reported_not_faked(api):
+def test_manual_only_sources_cannot_be_scheduled_for_automated_search(api):
     cfg = api.get("/search-configs").json()[0]
     body = {"name": cfg["name"], "filters": cfg["filters"], "source_codes": ["stepstone"]}
+    r = api.patch(f"/search-configs/{cfg['id']}", body, key=None)
+    assert r.status_code == 422 and "URL import" in r.json()["error"]["message"]
+
+
+def test_source_needing_configuration_reports_it(api):
+    cfg = api.get("/search-configs").json()[0]
+    body = {"name": cfg["name"], "filters": cfg["filters"], "source_codes": ["greenhouse", "mock"]}
     api.patch(f"/search-configs/{cfg['id']}", body, key=None)
     run = run_mock_search(api)
-    assert run["status"] == "failed"
-    assert run["summary"]["sources"]["stepstone"] == {"status": "failed", "error": "not_implemented"}
+    assert run["status"] == "partial"
+    assert run["summary"]["sources"]["greenhouse"] == {"status": "failed", "error": "needs_configuration"}
 
 
 def test_source_labels_are_honest(api):
     sources = {s["code"]: s for s in api.get("/sources").json()}
     assert sources["mock"]["label"] == "Mock"
     assert sources["linkedin"]["label"] == "Manual"
-    assert sources["ba_jobsuche"]["label"] == "Planned"
+    assert sources["ba_jobsuche"]["label"] == "Untested"  # built, never run against the live API
+    assert sources["greenhouse"]["label"] == "Untested"
     assert not any(s["label"] == "Automated" for s in sources.values())
-    r = api.patch("/sources/ba_jobsuche", {"enabled": True}, key=None)
+    r = api.patch("/sources/stepstone", {"enabled": True}, key=None)
     assert r.status_code == 409 and r.json()["error"]["code"] == "not_implemented"
 
 
