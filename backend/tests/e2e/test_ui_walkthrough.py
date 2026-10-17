@@ -112,3 +112,30 @@ def test_walkthrough(page):
     page.get_by_role("heading", name="Matching").wait_for()
     page.get_by_text("Score weights (must total 100; now 100)").wait_for()
     shot(page, "08-matching-settings")
+
+    # Phase 3: add and verify a name, then generate documents for the approved job
+    name_row = page.locator(".row", has=page.locator("input[value='full_name']")).first
+    name_row.get_by_label("Value").fill("Alex Example")
+    page.get_by_role("button", name="Save changes").click()
+    page.get_by_text("Saved as a new profile version").wait_for()
+    name_row = page.locator(".row", has=page.locator("input[value='full_name']")).first
+    name_row.get_by_role("button", name="Verify").click()
+    name_row.get_by_role("button", name="Verified").wait_for()
+
+    page.get_by_role("link", name="Application Review").click()
+    page.get_by_role("button", name="Generate CV and cover letter").click()
+    page.get_by_role("heading", name="CV · v1").wait_for(timeout=30000)
+    page.get_by_role("heading", name="Cover letter · v1").wait_for()
+    assert page.locator(".badge", has_text="Verified").count() == 2
+    page.locator(".badge", has_text="Documents ready").first.wait_for()
+    shot(page, "09-application-review")
+
+    # Editing a sentence creates a new verified version
+    first_summary = page.get_by_label("Summary text").first
+    if first_summary.count():
+        first_summary.fill("I would be glad to discuss the role.")
+        page.get_by_role("button", name="Save as new version").first.click()
+        page.get_by_role("heading", name="CV · v2").wait_for()
+    with page.expect_download() as dl:
+        page.get_by_role("link", name="PDF").first.click()
+    assert dl.value.suggested_filename.endswith(".pdf")

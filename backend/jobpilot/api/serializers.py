@@ -5,7 +5,7 @@ from jobpilot.db import models as m
 
 
 def fact(f: m.ProfileFact) -> dict:
-    return {"id": f.id, "category": f.category, "key": f.key, "value": f.value, "context": f.context,
+    return {"id": f.id, "category": f.category, "entry": f.entry, "key": f.key, "value": f.value, "context": f.context,
             "verified": f.verified, "source_note": f.source_note}
 
 

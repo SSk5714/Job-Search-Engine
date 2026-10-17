@@ -20,6 +20,8 @@ export const STATE_LABEL: Record<State, string> = {
 export const STATE_TONE: Partial<Record<State, "accent" | "good" | "warn" | "bad" | "muted">> = {
   classified: "accent",
   approved_for_preparation: "accent",
+  documents_ready: "good",
+  form_prepared: "good",
   awaiting_user_review: "warn",
   needs_manual_input: "warn",
   submitted: "good",

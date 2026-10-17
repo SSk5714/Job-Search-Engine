@@ -30,6 +30,7 @@ class Settings(BaseSettings):
 
     # Workflow
     availability_recheck_hours: int = 24
+    documents_dir: str = "./storage/documents"  # generated CV/cover-letter files (keep private, back up)
 
 
 @lru_cache

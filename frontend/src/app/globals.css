@@ -149,3 +149,4 @@ label { font-size: 13px; color: var(--ink-2); display: grid; gap: 4px; }
   .two, .form-grid { grid-template-columns: 1fr; }
 }
 input[type="range"], input[type="checkbox"] { accent-color: var(--accent); padding: 0; }
+@media (max-width: 860px) { .grid[style*="260px"] { grid-template-columns: 1fr !important; } }

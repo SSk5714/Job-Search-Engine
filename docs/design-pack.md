@@ -178,3 +178,25 @@ See `jobpilot/domain/states.py` (table) and `transitions.py` (guards). Highlight
 
 See `docs/test-results/phase-1.md` for the mapping of the 14 criteria to tests and their
 current status.
+
+
+## 10. Documents (as built, Phase 3)
+
+- **Content, not prose blobs.** A CV or cover letter is stored as structured content. Each sentence about the
+  candidate is a `Claim {text, fact_ids}`. Names, contact lines, job headers, dates, education and languages
+  are rendered from verified facts by code, so they cannot be misstated.
+- **Fact book.** Only verified, non-empty facts are used. Employment durations are derived by code
+  (`derived:<entry>:duration`) so a claim can cite "10 months" instead of rounding to "1 year".
+  Contact facts are rendered but never sent to Claude.
+- **Verifier** (`documents/verify.py`, deterministic): unknown fact ids; skills or tools not in the cited facts;
+  numbers not in the cited facts; language, availability and work-permit statements without a matching
+  language or eligibility fact; seniority words; promotions; "learning" or "coursework" skills presented as
+  experience; experience statements that cite nothing. The target job title and company may be named freely.
+- **Generators.** `TemplateGenerator` (no AI, always available) and Claude (`claude/docs-v1/<model>`,
+  structured outputs). Both go through the same verifier; a Claude failure or budget stop falls back to the
+  template with a note.
+- **Versions.** Every generation or edit is a new version; earlier ones are kept as `superseded`. A new
+  version invalidates any approval. The application moves to `documents_ready` only when the latest CV and
+  cover letter are both `ready` (zero unsupported claims, no structure problems).
+- **Files.** DOCX and PDF are rendered at save time into `JOBPILOT_DOCUMENTS_DIR/<application>/<kind>-v<n>.*`
+  and served only through authenticated download endpoints.

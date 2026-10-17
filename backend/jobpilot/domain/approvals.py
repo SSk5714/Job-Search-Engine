@@ -19,10 +19,10 @@ def _sha(data: object) -> str:
 
 
 def current_documents(db: Session, application_id: uuid.UUID) -> dict[str, m.Document]:
-    """Latest ready version per kind."""
+    """Latest version per kind (ready or draft). Guards check that it is ready."""
     docs = db.scalars(
         select(m.Document)
-        .where(m.Document.application_id == application_id, m.Document.status == "ready")
+        .where(m.Document.application_id == application_id, m.Document.status != "superseded")
         .order_by(m.Document.kind, m.Document.version_no.desc())
     ).all()
     latest: dict[str, m.Document] = {}
@@ -70,9 +70,10 @@ def approve(db: Session, app: m.Application) -> m.Approval:
     if pending:
         raise DomainError("unresolved_fields", "Some form fields still need your input",
                           {"fields": [f.field_key for f in pending]})
+    current = current_documents(db, app.id)
+    if not all(k in current and current[k].status == "ready" for k in ("cv", "cover_letter")):
+        raise DomainError("documents_missing", "A verified CV and cover letter are required before approval")
     docs = document_hashes(db, app.id)
-    if not {"cv", "cover_letter"} <= docs.keys():
-        raise DomainError("documents_missing", "A ready CV and cover letter are required before approval")
     existing = valid_approval(db, app.id)
     if existing:
         invalidate(db, app.id, "superseded by a new approval")

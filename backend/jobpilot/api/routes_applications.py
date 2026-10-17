@@ -4,8 +4,10 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import FileResponse, StreamingResponse
+from typing import Literal
+
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,7 @@ from jobpilot.api.deps import current_user, run_idempotent
 from jobpilot.api.routes_jobs import latest_evaluations
 from jobpilot.db import models as m
 from jobpilot.db.session import get_db
+from jobpilot.documents import service as documents
 from jobpilot.domain import approvals, transitions
 from jobpilot.domain.errors import DomainError, NotFound
 from jobpilot.domain.states import Actor, State
@@ -62,6 +65,12 @@ def export_csv(db: Session = Depends(get_db), include_unreviewed: bool = True):
                              headers={"Content-Disposition": 'attachment; filename="jobpilot-applications.csv"'})
 
 
+def _doc_out(d: m.Document) -> dict:
+    return {"id": d.id, "kind": d.kind, "version_no": d.version_no, "status": d.status,
+            "content_hash": d.content_hash, "verification": d.verification, "content": d.content,
+            "generator": d.generator, "model_version": d.model_version, "created_at": d.created_at}
+
+
 def _get(db: Session, app_id: uuid.UUID) -> m.Application:
     app = db.get(m.Application, app_id)
     if app is None:
@@ -82,9 +91,7 @@ def _detail(db: Session, app: m.Application) -> dict:
         **s.application_row(app, ev.score if ev else None),
         "job": s.job(app.job, ev, app, detail=True),
         "history": [s.history(h) for h in hist],
-        "documents": [{"id": d.id, "kind": d.kind, "version_no": d.version_no, "status": d.status,
-                       "content_hash": d.content_hash, "verification": d.verification,
-                       "created_at": d.created_at} for d in docs],
+        "documents": [_doc_out(d) for d in docs],
         "form_fields": [{"id": f.id, "field_key": f.field_key, "label": f.label, "field_type": f.field_type,
                          "sensitivity": f.sensitivity, "proposed_value": f.proposed_value,
                          "needs_manual": f.needs_manual, "confidence": f.confidence} for f in fields],
@@ -188,3 +195,49 @@ def submit(app_id: uuid.UUID, db: Session = Depends(get_db)):
         raise DomainError("submission_outcome_unknown",
                           "A previous attempt ended ambiguously; check the portal before trying again")
     raise DomainError("not_implemented", "Automated submission arrives in Phase 4", status_code=501)
+
+
+class GenerateIn(BaseModel):
+    kinds: list[Literal["cv", "cover_letter"]] = Field(default_factory=lambda: ["cv", "cover_letter"])
+
+
+@router.post("/{app_id}/documents/generate")
+def generate_documents(app_id: uuid.UUID, body: GenerateIn, request: Request, db: Session = Depends(get_db)):
+    """Tailored CV and cover letter from your verified facts (Claude when configured, else the template).
+    Each is verified claim by claim; the application moves to documents_ready only when both pass."""
+    def handler():
+        documents.generate(db, app_id, tuple(dict.fromkeys(body.kinds)))
+        return 200, _detail(db, _get(db, app_id))
+
+    return run_idempotent(db, request, f"POST /applications/{app_id}/documents/generate", body.model_dump(), handler)
+
+
+class EditIn(BaseModel):
+    content: dict
+
+
+@router.put("/{app_id}/documents/{kind}")
+def edit_document(app_id: uuid.UUID, kind: str, body: EditIn, db: Session = Depends(get_db)):
+    try:
+        documents.edit(db, app_id, kind, body.content)
+    except ValidationError as e:
+        raise DomainError("validation_error", "Document content is malformed", {"errors": e.errors()[:5]},
+                          status_code=422)
+    db.commit()
+    return _detail(db, _get(db, app_id))
+
+
+@router.get("/{app_id}/documents/{doc_id}/download")
+def download(app_id: uuid.UUID, doc_id: uuid.UUID, format: Literal["pdf", "docx"] = "pdf",
+             db: Session = Depends(get_db)):
+    doc = db.get(m.Document, doc_id)
+    if doc is None or doc.application_id != app_id:
+        raise NotFound("Document")
+    path = documents.file_path(doc, format)
+    if not path.exists():
+        raise DomainError("file_missing", "The file for this version is missing; regenerate it", status_code=410)
+    app = _get(db, app_id)
+    safe = "".join(c if c.isalnum() else "-" for c in app.job.company)[:40].strip("-")
+    media = "application/pdf" if format == "pdf" else \
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return FileResponse(path, media_type=media, filename=f"{doc.kind}-{safe}-v{doc.version_no}.{format}")

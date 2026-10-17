@@ -37,8 +37,8 @@ def _documents_verified(db: Session, app: m.Application) -> str | None:
     docs = approvals.current_documents(db, app.id)
     for kind in ("cv", "cover_letter"):
         doc = docs.get(kind)
-        if doc is None:
-            return f"No ready {kind.replace('_', ' ')}"
+        if doc is None or doc.status != "ready":
+            return f"No verified {kind.replace('_', ' ')}"
         if doc.verification.get("unsupported_claims"):
             return f"The {kind.replace('_', ' ')} has unsupported claims"
     return None

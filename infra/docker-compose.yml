@@ -27,6 +27,7 @@ services:
     environment:
       JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
       JOBPILOT_REDIS_URL: redis://redis:6379/0
+    volumes: [documents:/app/storage/documents]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -39,6 +40,7 @@ services:
       JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
       JOBPILOT_REDIS_URL: redis://redis:6379/0
     command: celery -A jobpilot.worker worker -l info --concurrency 2
+    volumes: [documents:/app/storage/documents]
     depends_on:
       api: { condition: service_started }
 
@@ -52,3 +54,4 @@ services:
 
 volumes:
   pgdata:
+  documents:  # generated CVs and cover letters: back this up with the database

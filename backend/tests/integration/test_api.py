@@ -25,7 +25,8 @@ def test_seed_profile_is_unverified_and_has_blanks_for_eligibility(api):
     p = api.get("/profile").json()
     assert p["verified_count"] == 0
     elig = {f["key"]: f["value"] for f in p["facts"] if f["category"] == "eligibility"}
-    assert elig == {"enrolment_status": "", "work_authorization": "", "sponsorship_required": ""}
+    assert elig == {"enrolment_status": "", "work_authorization": "", "sponsorship_required": "", "availability": ""}
+    assert all(f["value"] == "" for f in p["facts"] if f["category"] == "contact")  # no personal data in seed
     emp = {f["key"]: f["value"] for f in p["facts"] if f["category"] == "employment"}
     assert emp["start"] == "2024-10" and emp["end"] == "2025-08" and emp["employer"] == "Sasken Technologies"
 
@@ -40,7 +41,7 @@ def test_empty_fact_cannot_be_verified(api):
 def test_profile_edit_creates_version_and_resets_changed_verification(api):
     p = verify_facts(api, skills=("Java", "Kotlin"))
     assert p["version_no"] == 2
-    facts = [{k: f[k] for k in ("category", "key", "value", "context", "source_note")} for f in p["facts"]]
+    facts = [{k: f[k] for k in ("category", "entry", "key", "value", "context", "source_note")} for f in p["facts"]]
     for f in facts:
         if f["key"] == "kotlin":
             f["context"] = "project"  # changed -> must be re-verified

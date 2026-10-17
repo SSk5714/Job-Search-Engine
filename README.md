@@ -8,7 +8,7 @@ One deterministic orchestrator owns all workflow state in PostgreSQL. Specialize
 (discovery, matching, and later documents and form preparation) only return validated
 results, and AI is used only where language understanding helps.
 
-**Status: Phase 2 of 6 (real sources and Claude matching) complete.** See [what works today](#what-works-today)
+**Status: Phase 3 of 6 (tailored CVs and cover letters) complete.** See [what works today](#what-works-today)
 and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 
 ![Job Review](docs/screenshots/04-job-review.png)
@@ -22,14 +22,17 @@ and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 - Editable score weights and thresholds, and re-scoring that keeps old evaluations for comparison
 - Availability rechecks: approving a job rechecks the listing first, and closed listings are marked expired
 - URL normalization and cross-source dedup
+- **Tailored CV and cover letter** per approved job, written by Claude or by a no-AI template. Every sentence cites the verified facts it rests on, and a deterministic fact checker flags anything the cited facts don't support (invented skills, rounded-up durations, language or work-permit claims, promotions, "learning" skills sold as experience).
+- ATS-friendly DOCX and PDF output (single column, standard headings, real text) with full version history. Editing a sentence creates a new verified version and invalidates any approval.
+- Grouped profile entries (each job, degree and project), contact details that are never sent to Claude, profile JSON import/export, and an untailored master CV download
 - The full application state machine with guards, history, optimistic locking and idempotent writes
 - Approval binding to document and form-value hashes, with invalidation on any change (backend)
 - Profile editor with versioning and per-fact verification
 - Dashboard, Job Discovery, Job Review, Tracker with history drawer, CSV export, Settings & Health
 - Honest status: sources and services that aren't built are labelled Planned, Manual or not implemented
 
-Not yet: CV and cover letter generation (Phase 3), form preparation and submission (4),
-scheduler, monitor and notifications (5), production hardening (6).
+Not yet: form preparation and submission (Phase 4), scheduler, monitor and notifications (5),
+production hardening (6).
 
 > The real sources and Claude were tested against recorded responses and a fake model, because the
 > build environment has no outbound access or API key. The app labels them **Untested** until your
@@ -79,20 +82,21 @@ Without `JOBPILOT_REDIS_URL`, search runs execute inside the API process.
 1. **Settings & Health**: fill in and verify your facts. Scores use verified facts only, and eligibility (enrolment, work authorization, language levels) stays "uncertain" until verified. Set matching weights and AI limits there too.
 2. **Job Discovery**: tick Bundesagentur für Arbeit (no setup needed) and add Greenhouse, Lever or Personio company names, then press **Run search**.
 3. **Job Review**: approve, keep for later, or reject.
-4. **Tracker**: follow-ups, outcomes, full history, CSV export.
+4. **Application Review**: generate the CV and cover letter, fix anything flagged, then download PDF or DOCX.
+5. **Tracker**: follow-ups, outcomes, full history, CSV export.
 
 ## Tests
 
 ```bash
 cd backend
 createdb jobpilot_test
-pytest                                   # 112 tests on a real Postgres via the migrations
+pytest                                   # 136 tests on a real Postgres via the migrations
 
 # Browser walkthrough against a running, freshly migrated stack
 JOBPILOT_E2E_BASE_URL=http://localhost:3000 JOBPILOT_E2E_PASSWORD=... pytest tests/e2e
 ```
 
-Latest results: [docs/test-results/phase-2.md](docs/test-results/phase-2.md).
+Latest results: [docs/test-results/phase-3.md](docs/test-results/phase-3.md).
 
 ## Configuration
 
@@ -108,6 +112,7 @@ Latest results: [docs/test-results/phase-2.md](docs/test-results/phase-2.md).
 | `JOBPILOT_CLAUDE_MODEL` | no | Default `claude-haiku-5-5` |
 | `JOBPILOT_AI_PRICES` | no | JSON price override, e.g. `{"claude-haiku-5-5": [0.10, 0.50]}` (USD per MTok) |
 | `JOBPILOT_HTTP_USER_AGENT` | no | Sent to job sources |
+| `JOBPILOT_DOCUMENTS_DIR` | no | Where generated documents are stored (default `./storage/documents`; personal data, back it up) |
 | `JOBPILOT_API_URL` (frontend) | yes | Where Next.js proxies `/api/v1` |
 
 ## Repository layout
@@ -120,6 +125,7 @@ backend/
     orchestrator/  runs.py: plans runs, isolates sources, persists results
     agents/        discovery adapters (BA, Greenhouse, Lever, Personio, mock), Claude matcher
     ai/            provider interface, Claude client (structured outputs, pricing)
+    documents/     content schema, fact book, verifier, template + Claude generators, DOCX/PDF renderers
     api/           routers, auth, CSRF, idempotency
     db/            models (23 tables), session
     worker.py      Celery app
@@ -145,12 +151,14 @@ wireframes, security model, acceptance-test plan) is in
 - StepStone, Indeed, XING and LinkedIn only support manual URL import, because their terms restrict automated access.
 - Re-scoring runs inside the request; with Claude on, large re-scores take a while (about 50 jobs per run by default).
 - `rules-v0` (the fallback) is keyword matching and misses synonyms and context.
+- Documents are English only. The template generator uses fixed sentence patterns: correct, but plainer than Claude's writing.
+- The fact checker is rule-based. It catches unsupported skills, numbers, language and permit claims, but it cannot judge tone or emphasis, so read every document before you send it.
 - Single user. No password change or login rate limiting yet (Phase 6).
 - No scheduler or independent monitor yet (Phase 5); runs are started by hand.
 - The seed profile is unverified on purpose. Fill in eligibility, languages and the period since August 2025 before relying on scores.
 
 ## Next steps
 
-Phase 3: master CV handling, tailored CV and cover letter generation with Claude, DOCX and PDF
-output, version history, and a factual verification report tying every claim to a verified
-profile fact.
+Phase 4: permitted Playwright form preparation against a mock portal first, field mapping from
+verified facts with sensitive fields always left to you, document attachment, and the final
+approval screen that binds your approval to the exact document and form-value versions.

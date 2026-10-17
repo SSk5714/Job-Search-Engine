@@ -83,7 +83,7 @@ export interface TrackerRow {
 export interface ApplicationDetail extends TrackerRow {
   job: Job;
   history: { from_state: State | null; to_state: State; actor: string; reason: string | null; at: string }[];
-  documents: { id: string; kind: string; version_no: number; status: string; content_hash: string }[];
+  documents: DocumentVersion[];
   form_fields: {
     id: string; field_key: string; label: string; field_type: string; sensitivity: string;
     proposed_value: string | null; needs_manual: boolean; confidence: number;
@@ -92,8 +92,46 @@ export interface ApplicationDetail extends TrackerRow {
   allowed_transitions: State[];
 }
 
+export interface ClaimT { text: string; fact_ids: string[] }
+export interface ClaimResult { where: string; text: string; fact_ids: string[]; status: "ok" | "unsupported"; reasons: string[] }
+export interface CVContentT {
+  headline: ClaimT;
+  summary: ClaimT[];
+  skill_groups: { name: string; skill_fact_ids: string[] }[];
+  experience: { entry: string; bullets: ClaimT[] }[];
+  projects: { entry: string; bullets: ClaimT[] }[];
+  education_entries: string[];
+  certification_fact_ids: string[];
+}
+export interface LetterContentT {
+  subject: string;
+  salutation: string;
+  paragraphs: { sentences: ClaimT[] }[];
+  sign_off: string;
+}
+export interface DocumentVersion {
+  id: string;
+  kind: "cv" | "cover_letter";
+  version_no: number;
+  status: "draft" | "ready" | "superseded";
+  content_hash: string;
+  generator: "template" | "claude" | "user";
+  model_version: string | null;
+  created_at: string;
+  content: CVContentT | LetterContentT;
+  verification: {
+    claims: ClaimResult[];
+    unsupported_claims: string[];
+    structure_problems?: string[];
+    notes?: string[];
+    checked: number;
+    passed: number;
+  };
+}
+
 export interface Fact {
   id?: string;
+  entry?: string | null;
   category: string;
   key: string;
   value: string;
@@ -248,7 +286,7 @@ export const api = {
   profile: () => request<Profile>("GET", "/profile"),
   saveProfile: (facts: Fact[], note?: string) =>
     request<Profile>("PUT", "/profile", {
-      facts: facts.map(({ category, key, value, context, source_note }) => ({ category, key, value, context, source_note })),
+      facts: facts.map(({ category, entry, key, value, context, source_note }) => ({ category, entry: entry || null, key, value, context, source_note })),
       note,
     }, true),
   verifyFact: (id: string, verified: boolean) => request<Fact>("POST", `/profile/facts/${id}/verify`, { verified }),
@@ -281,4 +319,13 @@ export const api = {
   track: (id: string, patch: { next_follow_up?: string | null; outcome?: string | null }) =>
     request<ApplicationDetail>("PATCH", `/applications/${id}`, patch),
   exportCsvUrl: `${BASE}/applications/export.csv`,
+  generateDocs: (id: string) => request<ApplicationDetail>("POST", `/applications/${id}/documents/generate`, {}, true),
+  saveDoc: (id: string, kind: string, content: CVContentT | LetterContentT) =>
+    request<ApplicationDetail>("PUT", `/applications/${id}/documents/${kind}`, { content }),
+  docUrl: (appId: string, docId: string, format: "pdf" | "docx") =>
+    `${BASE}/applications/${appId}/documents/${docId}/download?format=${format}`,
+  masterCvUrl: (format: "pdf" | "docx") => `${BASE}/profile/master-cv?format=${format}`,
+  exportProfile: () => request<{ format: string; facts: Fact[] }>("GET", "/profile/export"),
+  importProfile: (data: { format: string; facts: Fact[] }) =>
+    request<Profile>("POST", "/profile/import", { format: data.format, facts: data.facts.map(({ category, entry, key, value, context, source_note }) => ({ category, entry: entry ?? null, key, value: value ?? "", context: context ?? null, source_note: source_note ?? null })) }, true),
 };

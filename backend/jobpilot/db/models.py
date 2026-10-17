@@ -86,8 +86,10 @@ class ProfileFact(Base, Timestamped):
     __table_args__ = (Index("ix_profile_facts_version", "version_id"),)
     id: Mapped[uuid.UUID] = pk()
     version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("profile_versions.id"))
-    # education | employment | skill | project | language | eligibility | location | gap
+    # education | employment | skill | project | language | eligibility | location | gap | contact | certification
     category: Mapped[str] = mapped_column(String(32))
+    # Groups facts that belong together, e.g. one job ("sasken"), one degree ("msc"), one project.
+    entry: Mapped[str | None] = mapped_column(String(64))
     key: Mapped[str] = mapped_column(String(80))
     value: Mapped[str] = mapped_column(Text, default="")
     # For skills: professional | project | coursework | learning | unspecified
@@ -259,6 +261,10 @@ class Document(Base, Timestamped):
     pdf_path: Mapped[str | None] = mapped_column(Text)
     verification: Mapped[dict] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(16), default="draft")  # draft | ready | superseded
+    # Structured content (claims citing fact ids); files are rendered from this deterministically.
+    content: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    generator: Mapped[str] = mapped_column(String(16), default="template", server_default="template")  # template|claude|user
+    model_version: Mapped[str | None] = mapped_column(String(128))
 
 
 class FormField(Base, Timestamped):

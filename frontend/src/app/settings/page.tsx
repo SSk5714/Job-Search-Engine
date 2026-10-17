@@ -7,16 +7,19 @@ import { ErrorBox, Loading, errorText, useLoad } from "@/components/ui";
 import { MatchingSettings } from "@/components/MatchingSettings";
 
 const SECTIONS: { category: string; title: string; hint: string }[] = [
-  { category: "education", title: "Education", hint: "Degree, university, graduation (YYYY-MM), grade." },
-  { category: "employment", title: "Employment", hint: "Use exact dates (YYYY-MM). Only verified facts appear in documents." },
+  { category: "contact", title: "Contact", hint: "Shown on your documents. Never sent to Claude." },
+  { category: "education", title: "Education", hint: "One entry per degree (e.g. bachelor, master): degree, university, start and graduation (YYYY-MM), cgpa. Leave graduation empty while studying." },
+  { category: "employment", title: "Employment", hint: "One entry per job: employer, location, start, end (YYYY-MM), first_title, promoted_to, promotion_date, focus, and one 'responsibility' fact per bullet." },
   { category: "skill", title: "Skills", hint: "Context separates professional experience from projects, coursework and things you are learning." },
-  { category: "project", title: "Projects", hint: "Personal or academic projects. Never presented as employment." },
+  { category: "project", title: "Projects", hint: "One entry per project: name (context professional or personal) and 'description' facts. Personal projects are never presented as employment." },
+  { category: "certification", title: "Certifications", hint: "One fact per certificate, e.g. 'Spring Boot 0 to 1 – Fundamentals, Coding Shuttle (Feb 2026)'." },
   { category: "gap", title: "Since August 2025", hint: "Describe the period accurately, e.g. master's preparation and technical learning." },
   { category: "language", title: "Languages", hint: "CEFR level: A1–C2 or native." },
-  { category: "eligibility", title: "Eligibility", hint: "Enrolment status, work authorization and sponsorship. Student roles and legal fields stay blocked until these are verified." },
+  { category: "eligibility", title: "Eligibility", hint: "Enrolment status, work authorization, sponsorship and availability (e.g. 'Part-time up to 20 hours per week'). Student roles and legal fields stay blocked until these are verified." },
   { category: "location", title: "Location", hint: "Current city and relocation preferences." },
 ];
 const CONTEXTS = ["professional", "project", "coursework", "learning", "unspecified"];
+const ENTRY_CATEGORIES = new Set(["education", "employment", "project"]);
 
 function ProfileEditor() {
   const { data, error, reload } = useLoad(api.profile);
@@ -58,7 +61,31 @@ function ProfileEditor() {
           <h2 style={{ marginBottom: 2 }}>Candidate profile</h2>
           <p className="small muted">Version {data.version_no} · {data.verified_count} of {data.filled_count} filled facts verified. Matching and documents use verified facts only.</p>
         </div>
-        <button className="btn primary" disabled={!dirty} onClick={save}>{dirty ? "Save changes" : "Saved"}</button>
+        <div className="row">
+          <a className="btn small" href={api.masterCvUrl("pdf")}>Master CV (PDF)</a>
+          <button className="btn small" onClick={async () => {
+            const data = await api.exportProfile();
+            const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+            const a = document.createElement("a"); a.href = url; a.download = "jobpilot-profile.json"; a.click();
+            URL.revokeObjectURL(url);
+          }}>Export</button>
+          <label className="btn small" style={{ display: "inline-flex", cursor: "pointer" }}>
+            Import
+            <input type="file" accept="application/json" style={{ display: "none" }} onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setErr(null);
+              try {
+                const data = JSON.parse(await file.text());
+                if (!confirm(`Replace your profile with ${data.facts?.length ?? 0} facts from ${file.name}? It becomes a new version; you verify each fact afterwards.`)) return;
+                await api.importProfile(data);
+                setMsg("Imported as a new version. Nothing is verified yet: check each fact and press Verify.");
+                reload();
+              } catch (x) { setErr(errorText(x)); } finally { e.target.value = ""; }
+            }} />
+          </label>
+          <button className="btn primary" disabled={!dirty} onClick={save}>{dirty ? "Save changes" : "Saved"}</button>
+        </div>
       </div>
       {msg && <p className="small muted" style={{ marginTop: 6 }}>{msg}</p>}
       <ErrorBox message={err} />
@@ -71,7 +98,7 @@ function ProfileEditor() {
             <div className="row" style={{ justifyContent: "space-between" }}>
               <strong>{s.title}</strong>
               <button className="btn small" onClick={() => {
-                setFacts([...facts, { category: s.category, key: "", value: "", context: s.category === "skill" ? "unspecified" : null, source_note: null, verified: false }]);
+                setFacts([...facts, { category: s.category, entry: null, key: s.category === "employment" ? "responsibility" : "", value: "", context: s.category === "skill" ? "unspecified" : null, source_note: null, verified: false }]);
                 setDirty(true);
               }}>Add</button>
             </div>
@@ -79,11 +106,16 @@ function ProfileEditor() {
             <div className="list">
               {rows.map(({ f, i }) => (
                 <div key={f.id ?? `new-${i}`} className="row" style={{ alignItems: "center", flexWrap: "nowrap" }}>
-                  <input aria-label="Field" style={{ maxWidth: 180 }} value={f.key} placeholder="field" onChange={(e) => update(i, { key: e.target.value })} />
+                  {ENTRY_CATEGORIES.has(s.category) && (
+                    <input aria-label="Entry" style={{ maxWidth: 110 }} value={f.entry ?? ""} placeholder="entry"
+                      onChange={(e) => update(i, { entry: e.target.value })} />
+                  )}
+                  <input aria-label="Field" style={{ maxWidth: 160 }} value={f.key} placeholder="field" onChange={(e) => update(i, { key: e.target.value })} />
                   <input aria-label="Value" value={f.value} placeholder="Not set" onChange={(e) => update(i, { value: e.target.value })} />
-                  {s.category === "skill" && (
-                    <select aria-label="Context" style={{ maxWidth: 150 }} value={f.context ?? "unspecified"} onChange={(e) => update(i, { context: e.target.value })}>
-                      {CONTEXTS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {(s.category === "skill" || s.category === "project") && (
+                    <select aria-label="Context" style={{ maxWidth: 150 }} value={f.context ?? (s.category === "skill" ? "unspecified" : "")} onChange={(e) => update(i, { context: e.target.value || null })}>
+                      {s.category === "project" && <option value="">—</option>}
+                      {(s.category === "skill" ? CONTEXTS : ["professional", "personal"]).map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                   )}
                   {f.id && !dirty ? (

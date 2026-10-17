@@ -16,7 +16,8 @@ the same rule: **Untested** adapters become **Automated** only after their first
 | Availability recheck | Implemented for BA, Greenhouse, Lever, Personio | `test_phase2_api.py` |
 | Claude API (structured outputs, `claude-haiku-5-5` default) | Implemented, **live-untested** | Fake provider plus stubbed SDK client; set `JOBPILOT_ANTHROPIC_API_KEY` to activate |
 | Rule-based matching `rules-v0` | Implemented | Fallback whenever Claude is off, over budget or failing |
-| DOCX/PDF generation | Pending (Phase 3) | — |
+| DOCX/PDF generation (python-docx, ReportLab) | Implemented | `test_documents.py`: PDFs text-extracted, DOCX re-opened |
+| Claude document writing | Implemented, **live-untested** | Fake provider that fabricates a claim; the verifier catches it |
 | Playwright form preparation | Pending (Phase 4) | — |
 | Scheduler (Celery beat) | Pending (Phase 5) | Health shows `not_implemented` |
 | Independent monitor + alerts | Pending (Phase 5) | Health shows `not_implemented` |

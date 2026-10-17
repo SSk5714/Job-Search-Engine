@@ -1,5 +1,7 @@
 import uuid
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -60,6 +62,7 @@ def get_profile(db: Session = Depends(get_db)):
 
 class FactIn(BaseModel):
     category: str
+    entry: str | None = Field(default=None, max_length=64)
     key: str = Field(min_length=1, max_length=80)
     value: str = Field(default="", max_length=4000)
     context: str | None = None
@@ -98,3 +101,36 @@ def versions(db: Session = Depends(get_db)):
                       .order_by(m.ProfileVersion.version_no.desc())).all()
     return [{"id": v.id, "version_no": v.version_no, "note": v.note, "created_at": v.created_at,
              "current": v.id == profile.current_version_id} for v in rows]
+
+
+@router.get("/export")
+def export_profile(db: Session = Depends(get_db)):
+    """Your current profile as JSON (includes contact details; keep the file private)."""
+    v = profile_svc.current_version(db)
+    return {"format": "jobpilot-profile-v1", "version_no": v.version_no, "facts": profile_svc.export_facts(v)}
+
+
+class ImportIn(BaseModel):
+    format: str = Field(pattern="^jobpilot-profile-v1$")
+    facts: list[FactIn] = Field(min_length=1, max_length=500)
+
+
+@router.post("/import")
+def import_profile(body: ImportIn, request: Request, db: Session = Depends(get_db)):
+    """Replace the profile with imported facts as a NEW version. Nothing is marked verified."""
+    def handler():
+        version = profile_svc.import_facts(db, [f.model_dump() for f in body.facts], "Imported from file")
+        return 200, _profile_out(version)
+
+    return run_idempotent(db, request, "POST /profile/import", body.model_dump(), handler)
+
+
+@router.get("/master-cv")
+def master_cv(format: Literal["pdf", "docx"] = "pdf", db: Session = Depends(get_db)):
+    """Your untailored CV from every verified fact. Generated on demand, never overwritten."""
+    from jobpilot.documents.service import master_cv as build
+
+    data = build(db, format)
+    media = "application/pdf" if format == "pdf" else \
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return Response(data, media_type=media, headers={"Content-Disposition": f'attachment; filename="master-cv.{format}"'})

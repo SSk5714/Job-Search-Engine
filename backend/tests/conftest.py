@@ -7,6 +7,9 @@ import uuid
 os.environ.setdefault("JOBPILOT_DATABASE_URL", "postgresql+psycopg://postgres@localhost:5432/jobpilot_test")
 os.environ["JOBPILOT_REDIS_URL"] = ""
 os.environ.setdefault("JOBPILOT_SECRET_KEY", "test-secret-key-0123456789")
+import tempfile  # noqa: E402
+
+os.environ.setdefault("JOBPILOT_DOCUMENTS_DIR", tempfile.mkdtemp(prefix="jobpilot-docs-"))
 
 import pytest
 from alembic import command
@@ -108,7 +111,7 @@ def verify_facts(api: Api, *, skills=("Java", "Kotlin", "Android", "Spring Boot"
     prof = api.get("/profile").json()
     facts = []
     for f in prof["facts"]:
-        f = {k: f[k] for k in ("category", "key", "value", "context", "source_note")}
+        f = {k: f[k] for k in ("category", "entry", "key", "value", "context", "source_note")}
         if f["category"] == "skill":
             f["context"] = "professional"
         facts.append(f)
@@ -233,3 +236,70 @@ def default_match(posting: str, facts: list[dict]) -> dict:
             "required_skills": [m["skill"] for m in matches] + ["docker"],
             "skill_matches": matches, "language_requirements": [], "requirements": [],
             "summary": "Fits the verified Android and Java experience."}
+
+
+
+# ── Phase 3 helpers ─────────────────────────────────────────────────────────
+
+# A fictional candidate: no real personal data in the repository.
+TEST_PROFILE = [
+    {"category": "contact", "key": "full_name", "value": "Alex Example"},
+    {"category": "contact", "key": "email", "value": "alex@example.org"},
+    {"category": "contact", "key": "phone", "value": "+49 000 0000000"},
+    {"category": "location", "key": "current", "value": "Chemnitz, Germany"},
+    {"category": "education", "entry": "master", "key": "degree", "value": "M.Sc. Web Engineering"},
+    {"category": "education", "entry": "master", "key": "university", "value": "Chemnitz University of Technology"},
+    {"category": "education", "entry": "master", "key": "start", "value": "2026-10"},
+    {"category": "education", "entry": "bachelor", "key": "degree", "value": "B.E. Information Technology"},
+    {"category": "education", "entry": "bachelor", "key": "university", "value": "Example University, India"},
+    {"category": "education", "entry": "bachelor", "key": "start", "value": "2020-07"},
+    {"category": "education", "entry": "bachelor", "key": "graduation", "value": "2024-06"},
+    {"category": "education", "entry": "bachelor", "key": "cgpa", "value": "8.5/10"},
+    {"category": "employment", "entry": "acme", "key": "employer", "value": "Acme Mobile Ltd"},
+    {"category": "employment", "entry": "acme", "key": "location", "value": "Bangalore, India"},
+    {"category": "employment", "entry": "acme", "key": "start", "value": "2024-10"},
+    {"category": "employment", "entry": "acme", "key": "end", "value": "2025-08"},
+    {"category": "employment", "entry": "acme", "key": "first_title", "value": "Associate Software Engineer"},
+    {"category": "employment", "entry": "acme", "key": "focus", "value": "Android framework and middleware on Android 12 and Android 15"},
+    {"category": "employment", "entry": "acme", "key": "responsibility",
+     "value": "Built custom system services using Binder IPC and AIDL, with JNI bridges to native code"},
+    {"category": "employment", "entry": "acme", "key": "responsibility",
+     "value": "Debugged ANRs and native crashes using tombstones, logcat and ADB"},
+    {"category": "employment", "entry": "acme", "key": "responsibility",
+     "value": "Customized SystemUI and camera features through CameraManager"},
+    {"category": "project", "entry": "lock", "key": "name", "value": "Recent Apps Lock", "context": "professional"},
+    {"category": "project", "entry": "lock", "key": "description",
+     "value": "System service that locks apps in the Recents window, integrated with SystemUI over AIDL"},
+    {"category": "project", "entry": "editor", "key": "name", "value": "Browser Code Editor", "context": "personal"},
+    {"category": "project", "entry": "editor", "key": "description",
+     "value": "Web editor to write and run C++, Java and Python code in the browser"},
+    {"category": "certification", "key": "spring", "value": "Spring Boot 0 to 1 – Fundamentals, Coding Shuttle (Feb 2026)"},
+    {"category": "language", "key": "english", "value": "B2 (IELTS 6.5)"},
+    {"category": "language", "key": "german", "value": "A2 in progress"},
+    {"category": "eligibility", "key": "availability", "value": "Part-time up to 20 hours per week during the semester"},
+    *[{"category": "skill", "key": k.lower(), "value": k, "context": c} for k, c in [
+        ("Java", "professional"), ("Kotlin", "professional"), ("C++", "professional"), ("Android", "professional"),
+        ("AOSP", "professional"), ("AIDL", "professional"), ("JNI", "professional"), ("Python", "project"),
+        ("Spring Boot", "learning")]],
+]
+
+
+def load_test_profile(api: "Api", verify_all: bool = True, skip: tuple = ()) -> dict:
+    r = api.post("/profile/import", {"format": "jobpilot-profile-v1", "facts": TEST_PROFILE})
+    assert r.status_code == 200, r.text
+    prof = r.json()
+    if verify_all:
+        for f in prof["facts"]:
+            if f["value"] and f["key"] not in skip:
+                assert api.post(f"/profile/facts/{f['id']}/verify", {"verified": True}, key=None).status_code == 200
+    return api.get("/profile").json()
+
+
+def approved_job(api: "Api") -> dict:
+    """Run the mock search and approve the Kotlin/Android job for preparation."""
+    run_mock_search(api)
+    jobs = api.get("/jobs").json()["items"]
+    job = next(j for j in jobs if j["title"] == "Android Developer (m/w/d)")
+    r = api.post(f"/jobs/{job['id']}/decision", {"decision": "approve"})
+    assert r.status_code == 200, r.text
+    return r.json()

@@ -1,59 +1,126 @@
 "use client";
 
 import Link from "next/link";
-import { api } from "@/lib/api";
-import { ErrorBox, Loading, StateBadge, useLoad } from "@/components/ui";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { api, type ApplicationDetail, type DocumentVersion, type TrackerRow } from "@/lib/api";
+import { ErrorBox, Loading, Score, StateBadge, errorText, useLoad } from "@/components/ui";
+import { DocumentEditor } from "@/components/DocumentEditor";
 
-export default function ReviewPage() {
-  const { data, error, loading } = useLoad(async () => {
-    const [awaiting, manual, approved] = await Promise.all([
-      api.applications({ state: "awaiting_user_review" }),
-      api.applications({ state: "needs_manual_input" }),
-      api.applications({ state: "approved_for_preparation" }),
-    ]);
-    return { queue: [...manual, ...awaiting], approved };
+const STATES = ["approved_for_preparation", "documents_ready", "form_prepared", "awaiting_user_review", "needs_manual_input"];
+
+function latest(docs: DocumentVersion[], kind: string): DocumentVersion | undefined {
+  return docs.filter((d) => d.kind === kind).sort((a, b) => b.version_no - a.version_no)[0];
+}
+
+function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
+  const [d, setD] = useState<ApplicationDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setD(null); api.application(id).then(setD).catch((e) => setError(errorText(e))); }, [id]);
+
+  async function generate() {
+    setBusy(true); setError(null);
+    try { setD(await api.generateDocs(id)); onChanged(); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
+  }
+
+  if (!d) return error ? <ErrorBox message={error} /> : <Loading />;
+  const cv = latest(d.documents, "cv");
+  const letter = latest(d.documents, "cover_letter");
+  const canGenerate = ["approved_for_preparation", "documents_ready"].includes(d.state);
+  const history = d.documents.filter((x) => x.status === "superseded").sort((a, b) => b.version_no - a.version_no);
+
+  return (
+    <div>
+      <section className="card" style={{ marginBottom: 16 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <h2 style={{ marginBottom: 2 }}>{d.role}</h2>
+            <p className="small muted">{d.company} · {d.city ?? ""} {d.country ?? ""} · <a href={d.source_url} target="_blank" rel="noopener noreferrer nofollow">listing ↗</a></p>
+          </div>
+          <div className="row"><StateBadge state={d.state} /><Score value={d.score} /></div>
+        </div>
+        <ErrorBox message={error} />
+        <div className="row" style={{ marginTop: 10 }}>
+          {canGenerate && (
+            <button className="btn primary" disabled={busy} onClick={generate}>
+              {busy ? "Generating and verifying…" : cv ? "Regenerate CV and letter" : "Generate CV and cover letter"}
+            </button>
+          )}
+          <span className="small muted">
+            Built only from your verified facts. Every sentence is checked; the job moves to “Documents ready” when both pass.
+          </span>
+        </div>
+      </section>
+
+      {!cv && !letter && <p className="notice">No documents yet.</p>}
+      {cv && <DocumentEditor appId={id} doc={cv} onSaved={(x) => { setD(x); onChanged(); }} />}
+      {letter && <DocumentEditor appId={id} doc={letter} onSaved={(x) => { setD(x); onChanged(); }} />}
+
+      {history.length > 0 && (
+        <section className="card" style={{ marginBottom: 16 }}>
+          <h2>Earlier versions</h2>
+          <div className="list small">
+            {history.map((h) => (
+              <div key={h.id} className="row" style={{ justifyContent: "space-between" }}>
+                <span>{h.kind === "cv" ? "CV" : "Cover letter"} v{h.version_no} · {h.generator} · {h.verification.passed}/{h.verification.checked} verified</span>
+                <span className="row"><a href={api.docUrl(id, h.id, "pdf")}>PDF</a><a href={api.docUrl(id, h.id, "docx")}>DOCX</a></span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <p className="notice small">
+        Form preparation and final submission arrive in Phase 4. Submission will always require your explicit approval of
+        these exact document versions.
+      </p>
+    </div>
+  );
+}
+
+function ReviewInner() {
+  const params = useSearchParams();
+  const router = useRouter();
+  const selected = params.get("id");
+  const { data, error, reload } = useLoad(async () => {
+    const lists = await Promise.all(STATES.map((s) => api.applications({ state: s })));
+    return lists.flat() as TrackerRow[];
   });
+  useEffect(() => {
+    if (!selected && data && data.length) router.replace(`/review?id=${data[0].id}`);
+  }, [selected, data, router]);
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Application Review</h1>
-          <p className="sub">The exact CV, cover letter and form values you approve before anything is submitted.</p>
+          <p className="sub">Tailored CV and cover letter for each job you approved, with every claim checked against your profile.</p>
         </div>
       </div>
-      <p className="notice" style={{ marginBottom: 16 }}>
-        Document generation (Phase 3) and form preparation (Phase 4) are not built yet, so no application can reach
-        this review step today. The backend already blocks submission without an approval bound to the exact document
-        and form-value hashes.
-      </p>
       <ErrorBox message={error} />
-      {loading && !data ? <Loading /> : null}
-      {data && (
-        <div className="grid two">
-          <section className="card">
-            <h2>Waiting for you</h2>
-            {data.queue.length === 0 ? <p className="small muted">Nothing to review.</p> : (
-              <div className="list">
-                {data.queue.map((a) => (
-                  <div key={a.id} className="row" style={{ justifyContent: "space-between" }}>
-                    <span>{a.role} · <span className="muted">{a.company}</span></span>
-                    <StateBadge state={a.state} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-          <section className="card">
-            <h2>In preparation</h2>
-            {data.approved.length === 0 ? <p className="small muted">Approve jobs in <Link href="/jobs">Job Review</Link> to start preparation.</p> : (
-              <div className="list small">
-                {data.approved.map((a) => <div key={a.id}>{a.role} · <span className="muted">{a.company}</span></div>)}
-              </div>
-            )}
-          </section>
+      {!data ? <Loading /> : data.length === 0 ? (
+        <p className="notice">Nothing in preparation. Approve a job in <Link href="/jobs">Job Review</Link> first.</p>
+      ) : (
+        <div className="grid" style={{ gridTemplateColumns: "minmax(0, 260px) minmax(0, 1fr)" }}>
+          <aside className="card list" style={{ alignSelf: "start" }}>
+            {data.map((a) => (
+              <Link key={a.id} href={`/review?id=${a.id}`} style={{ color: "inherit", textDecoration: "none",
+                fontWeight: a.id === selected ? 600 : 400 }}>
+                <div>{a.role}</div>
+                <div className="small muted">{a.company}</div>
+                <StateBadge state={a.state} />
+              </Link>
+            ))}
+          </aside>
+          <div>{selected && <Detail id={selected} onChanged={reload} />}</div>
         </div>
       )}
     </>
   );
+}
+
+export default function ReviewPage() {
+  return <Suspense fallback={<Loading />}><ReviewInner /></Suspense>;
 }

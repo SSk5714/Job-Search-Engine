@@ -11,21 +11,38 @@ from jobpilot.db import models as m
 from jobpilot.domain.errors import DomainError, NotFound
 from jobpilot.domain.scoring import ProfileView
 
-CATEGORIES = {"education", "employment", "skill", "project", "language", "eligibility", "location", "gap"}
+CATEGORIES = {"education", "employment", "skill", "project", "language", "eligibility", "location", "gap",
+              "contact", "certification"}
+# Contact details are rendered on documents but never sent to an AI provider.
+PRIVATE_CATEGORIES = {"contact"}
 SKILL_CONTEXTS = {"professional", "project", "coursework", "learning", "unspecified"}
 
 # Seed data from the brief. Everything starts UNVERIFIED; blanks are for you to fill.
+# `entry` groups facts: one job, one degree, one project. Personal contact details are
+# deliberately blank here — enter them in the app (they stay in your database only).
 SEED_FACTS: list[dict] = [
-    {"category": "education", "key": "degree", "value": "Bachelor of Engineering in Information Technology"},
-    {"category": "education", "key": "university", "value": "Savitribai Phule Pune University, India"},
-    {"category": "education", "key": "graduation", "value": "2024-06"},
-    {"category": "education", "key": "cgpa", "value": "8.79/10"},
-    {"category": "employment", "key": "employer", "value": "Sasken Technologies"},
-    {"category": "employment", "key": "start", "value": "2024-10"},
-    {"category": "employment", "key": "first_title", "value": "Associate Software Engineer"},
-    {"category": "employment", "key": "promoted_to", "value": "Software Engineer"},
-    {"category": "employment", "key": "end", "value": "2025-08"},
-    {"category": "employment", "key": "focus", "value": "Android development and Android framework-related work"},
+    {"category": "contact", "key": "full_name", "value": ""},
+    {"category": "contact", "key": "email", "value": ""},
+    {"category": "contact", "key": "phone", "value": ""},
+    {"category": "contact", "key": "linkedin", "value": ""},
+    {"category": "contact", "key": "github", "value": ""},
+    {"category": "education", "entry": "bachelor", "key": "degree", "value": "Bachelor of Engineering in Information Technology"},
+    {"category": "education", "entry": "bachelor", "key": "university", "value": "Savitribai Phule Pune University, India"},
+    {"category": "education", "entry": "bachelor", "key": "start", "value": ""},
+    {"category": "education", "entry": "bachelor", "key": "graduation", "value": "2024-06"},
+    {"category": "education", "entry": "bachelor", "key": "cgpa", "value": "8.79/10"},
+    {"category": "education", "entry": "master", "key": "degree", "value": ""},
+    {"category": "education", "entry": "master", "key": "university", "value": ""},
+    {"category": "education", "entry": "master", "key": "start", "value": ""},
+    {"category": "employment", "entry": "sasken", "key": "employer", "value": "Sasken Technologies"},
+    {"category": "employment", "entry": "sasken", "key": "location", "value": ""},
+    {"category": "employment", "entry": "sasken", "key": "start", "value": "2024-10"},
+    {"category": "employment", "entry": "sasken", "key": "first_title", "value": "Associate Software Engineer"},
+    {"category": "employment", "entry": "sasken", "key": "promoted_to", "value": "Software Engineer"},
+    {"category": "employment", "entry": "sasken", "key": "promotion_date", "value": ""},
+    {"category": "employment", "entry": "sasken", "key": "end", "value": "2025-08"},
+    {"category": "employment", "entry": "sasken", "key": "focus",
+     "value": "Android development and Android framework-related work"},
     *[
         {"category": "skill", "key": s.lower(), "value": s, "context": "unspecified"}
         for s in ["Java", "Kotlin", "C++", "Python", "Android", "AOSP", "JNI", "AIDL", "Camera2", "CameraX",
@@ -39,11 +56,13 @@ SEED_FACTS: list[dict] = [
     {"category": "eligibility", "key": "enrolment_status", "value": ""},
     {"category": "eligibility", "key": "work_authorization", "value": ""},
     {"category": "eligibility", "key": "sponsorship_required", "value": ""},
+    {"category": "eligibility", "key": "availability", "value": ""},
 ]
 
 
 def _content(f: dict) -> tuple:
-    return (f["category"], f["key"].strip().lower(), (f.get("value") or "").strip(), f.get("context"))
+    return (f["category"], (f.get("entry") or "").strip().lower(), f["key"].strip().lower(),
+            (f.get("value") or "").strip(), f.get("context"))
 
 
 def _hash(facts: list[dict]) -> str:
@@ -95,6 +114,7 @@ def save_version(db: Session, facts: list[dict], note: str | None = None, seed: 
             m.ProfileFact(
                 version_id=version.id,
                 category=f["category"],
+                entry=(f.get("entry") or "").strip().lower() or None,
                 key=f["key"].strip(),
                 value=(f.get("value") or "").strip(),
                 context=f.get("context"),
@@ -110,7 +130,7 @@ def save_version(db: Session, facts: list[dict], note: str | None = None, seed: 
 
 
 def _as_dict(f: m.ProfileFact) -> dict:
-    return {"category": f.category, "key": f.key, "value": f.value, "context": f.context}
+    return {"category": f.category, "entry": f.entry, "key": f.key, "value": f.value, "context": f.context}
 
 
 def set_verified(db: Session, fact_id, verified: bool) -> m.ProfileFact:
@@ -136,7 +156,9 @@ def profile_view(version: m.ProfileVersion) -> ProfileView:
             if f.value:
                 unverified += 1
             continue
-        for_ai.append({"id": str(f.id), "category": f.category, "key": f.key, "value": f.value,
+        if f.category in PRIVATE_CATEGORIES:
+            continue
+        for_ai.append({"id": str(f.id), "category": f.category, "entry": f.entry, "key": f.key, "value": f.value,
                        "context": f.context})
         if f.category not in ("skill", "eligibility", "language"):
             other.append(str(f.id))
@@ -148,3 +170,14 @@ def profile_view(version: m.ProfileVersion) -> ProfileView:
             langs[f.key.lower()] = (f.value, str(f.id))
     return ProfileView(version_id=str(version.id), skills=skills, eligibility=elig, languages=langs,
                        unverified_count=unverified, other_fact_ids=other, facts_for_ai=for_ai)
+
+
+def export_facts(version: m.ProfileVersion) -> list[dict]:
+    return [{**_as_dict(f), "source_note": f.source_note, "verified": f.verified} for f in version.facts]
+
+
+def import_facts(db: Session, facts: list[dict], note: str) -> m.ProfileVersion:
+    """Save imported facts as a new version. Imports never mark anything verified:
+    you confirm each fact in the app."""
+    clean = [{k: f.get(k) for k in ("category", "entry", "key", "value", "context", "source_note")} for f in facts]
+    return save_version(db, clean, note=note)
