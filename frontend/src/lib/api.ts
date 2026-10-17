@@ -84,14 +84,29 @@ export interface ApplicationDetail extends TrackerRow {
   job: Job;
   history: { from_state: State | null; to_state: State; actor: string; reason: string | null; at: string }[];
   documents: DocumentVersion[];
-  form_fields: {
-    id: string; field_key: string; label: string; field_type: string; sensitivity: string;
-    proposed_value: string | null; needs_manual: boolean; confidence: number;
-  }[];
+  form_fields: FormFieldT[];
+  unresolved_fields: string[];
+  apply_url: string | null;
+  prepared_at: string | null;
+  preparation: {
+    mode?: "browser" | "manual"; reason?: string; host?: string; screenshot?: string; blocked_requests?: string[];
+    fields?: number; auto_filled?: number; needs_you?: number; hints?: Record<string, string>;
+  };
+  submission_attempts: AttemptT[];
   approval: { id: string; approved_at: string } | null;
   allowed_transitions: State[];
 }
 
+export interface FormFieldT {
+  id: string; field_key: string; label: string; field_type: string; category: string;
+  sensitivity: "normal" | "sensitive" | "legal"; proposed_value: string | null; value_source: string | null;
+  needs_manual: boolean; required: boolean; options: { value: string; label: string }[]; confidence: number;
+  position: number;
+}
+export interface AttemptT {
+  id: string; status: "pending" | "succeeded" | "failed" | "unknown"; mode: "browser" | "manual";
+  result: string | null; evidence: string | null; started_at: string; finished_at: string | null;
+}
 export interface ClaimT { text: string; fact_ids: string[] }
 export interface ClaimResult { where: string; text: string; fact_ids: string[]; status: "ok" | "unsupported"; reasons: string[] }
 export interface CVContentT {
@@ -325,6 +340,15 @@ export const api = {
   docUrl: (appId: string, docId: string, format: "pdf" | "docx") =>
     `${BASE}/applications/${appId}/documents/${docId}/download?format=${format}`,
   masterCvUrl: (format: "pdf" | "docx") => `${BASE}/profile/master-cv?format=${format}`,
+  prepare: (id: string, apply_url: string) => request<ApplicationDetail>("POST", `/applications/${id}/prepare`, { apply_url }, true),
+  answerField: (id: string, fieldId: string, body: { proposed_value?: string; skip?: boolean }) =>
+    request<ApplicationDetail & { approval_invalidated: boolean }>("PATCH", `/applications/${id}/form-fields/${fieldId}`, body),
+  approve: (id: string) => request<ApplicationDetail>("POST", `/applications/${id}/approve`, {}, true),
+  submit: (id: string) => request<ApplicationDetail & { attempt: AttemptT }>("POST", `/applications/${id}/submit`, {}, true),
+  confirmOutcome: (id: string, submitted: boolean, note?: string) =>
+    request<ApplicationDetail>("POST", `/applications/${id}/submission-outcome`, { submitted, note }),
+  markSubmitted: (id: string, note?: string) => request<ApplicationDetail>("POST", `/applications/${id}/mark-submitted`, { note }, true),
+  evidenceUrl: (id: string, file: string) => `${BASE}/applications/${id}/evidence?file=${encodeURIComponent(file)}`,
   exportProfile: () => request<{ format: string; facts: Fact[] }>("GET", "/profile/export"),
   importProfile: (data: { format: string; facts: Fact[] }) =>
     request<Profile>("POST", "/profile/import", { format: data.format, facts: data.facts.map(({ category, entry, key, value, context, source_note }) => ({ category, entry: entry ?? null, key, value: value ?? "", context: context ?? null, source_note: source_note ?? null })) }, true),

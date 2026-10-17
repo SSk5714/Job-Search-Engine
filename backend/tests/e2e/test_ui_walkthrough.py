@@ -7,6 +7,7 @@ The target database should be freshly migrated (it creates real records).
 
 import os
 
+import httpx
 import pytest
 
 BASE = os.environ.get("JOBPILOT_E2E_BASE_URL")
@@ -139,3 +140,36 @@ def test_walkthrough(page):
     with page.expect_download() as dl:
         page.get_by_role("link", name="PDF").first.click()
     assert dl.value.suggested_filename.endswith(".pdf")
+
+    # Phase 4: prepare the form on the mock portal, answer what needs you, approve, submit
+    portal = os.environ.get("JOBPILOT_E2E_PORTAL", "http://127.0.0.1:8100")
+    httpx.post(f"{portal}/reset")
+    page.get_by_label("Application page").fill(f"{portal}/apply/standard")
+    page.get_by_role("button", name="Prepare form").click()
+    page.get_by_role("heading", name="Final review").wait_for(timeout=60000)
+    shot(page, "10-form-prepared")
+    email = page.get_by_label("Email address *")
+    email.fill("alex@example.org")
+    email.press("Enter")
+    page.get_by_text("your answer").first.wait_for()
+    page.get_by_role("button", name="Tick it").click()
+    page.get_by_role("button", name="Leave unticked").wait_for()
+    for _ in range(20):  # leave every optional question empty
+        buttons = page.get_by_role("button", name="Leave empty")
+        if buttons.count() == 0:
+            break
+        buttons.first.click()
+        page.wait_for_timeout(300)
+    approve = page.get_by_role("button", name="Approve these exact documents and answers")
+    approve.wait_for()
+    page.get_by_text("Still to answer").wait_for(state="detached")
+    assert approve.is_enabled(), page.locator(".warnbox").all_inner_texts()
+    approve.click()
+    page.get_by_text("Approved", exact=False).first.wait_for()
+    shot(page, "11-approved")
+    page.once("dialog", lambda d: d.accept())
+    page.get_by_role("button", name="Submit application now").click()
+    page.locator(".badge", has_text="Submitted").first.wait_for(timeout=60000)
+    shot(page, "12-submitted")
+    received = httpx.get(f"{portal}/submissions").json()
+    assert len(received) == 1 and received[0]["first_name"] == "Alex" and received[0]["privacy"] == "accepted"

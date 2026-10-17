@@ -6,8 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { api, type ApplicationDetail, type DocumentVersion, type TrackerRow } from "@/lib/api";
 import { ErrorBox, Loading, Score, StateBadge, errorText, useLoad } from "@/components/ui";
 import { DocumentEditor } from "@/components/DocumentEditor";
+import { ApplicationForm } from "@/components/ApplicationForm";
+import { ApprovalPanel } from "@/components/ApprovalPanel";
 
-const STATES = ["approved_for_preparation", "documents_ready", "form_prepared", "awaiting_user_review", "needs_manual_input"];
+const STATES = ["approved_for_preparation", "documents_ready", "form_prepared", "awaiting_user_review", "needs_manual_input", "submitted"];
 
 function latest(docs: DocumentVersion[], kind: string): DocumentVersion | undefined {
   return docs.filter((d) => d.kind === kind).sort((a, b) => b.version_no - a.version_no)[0];
@@ -57,6 +59,9 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
       {cv && <DocumentEditor appId={id} doc={cv} onSaved={(x) => { setD(x); onChanged(); }} />}
       {letter && <DocumentEditor appId={id} doc={letter} onSaved={(x) => { setD(x); onChanged(); }} />}
 
+      {cv && letter && <ApplicationForm d={d} onChange={(x) => { setD(x); onChanged(); }} />}
+      <ApprovalPanel d={d} onChange={(x) => { setD(x); onChanged(); }} />
+
       {history.length > 0 && (
         <section className="card" style={{ marginBottom: 16 }}>
           <h2>Earlier versions</h2>
@@ -71,10 +76,7 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
         </section>
       )}
 
-      <p className="notice small">
-        Form preparation and final submission arrive in Phase 4. Submission will always require your explicit approval of
-        these exact document versions.
-      </p>
+
     </div>
   );
 }

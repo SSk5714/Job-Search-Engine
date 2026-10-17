@@ -6,6 +6,9 @@ WORKDIR /app
 COPY backend/pyproject.toml ./
 COPY backend/jobpilot ./jobpilot
 RUN pip install --no-cache-dir .
+# Chromium for application-form preparation (isolated, headless contexts)
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install --with-deps chromium && chmod -R a+rX /ms-playwright
 
 COPY backend/alembic.ini ./
 COPY backend/migrations ./migrations

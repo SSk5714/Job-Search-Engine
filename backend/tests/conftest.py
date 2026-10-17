@@ -10,6 +10,8 @@ os.environ.setdefault("JOBPILOT_SECRET_KEY", "test-secret-key-0123456789")
 import tempfile  # noqa: E402
 
 os.environ.setdefault("JOBPILOT_DOCUMENTS_DIR", tempfile.mkdtemp(prefix="jobpilot-docs-"))
+os.environ.setdefault("JOBPILOT_BROWSER_ALLOW_PRIVATE_HOSTS", "true")  # the mock portal runs on 127.0.0.1
+os.environ.setdefault("JOBPILOT_BROWSER_TIMEOUT_S", "10")
 
 import pytest
 from alembic import command
@@ -303,3 +305,76 @@ def approved_job(api: "Api") -> dict:
     r = api.post(f"/jobs/{job['id']}/decision", {"decision": "approve"})
     assert r.status_code == 200, r.text
     return r.json()
+
+
+
+# ── Phase 4 helpers ─────────────────────────────────────────────────────────
+
+import importlib.util as _ilu  # noqa: E402
+import socket as _socket  # noqa: E402
+import threading as _threading  # noqa: E402
+import time as _time  # noqa: E402
+
+
+@pytest.fixture(scope="session")
+def portal():
+    """The mock application portal, served on a free local port for the whole session."""
+    import uvicorn
+
+    spec = _ilu.spec_from_file_location("mock_portal", os.path.join(BACKEND, "..", "mock-portal", "mock_portal.py"))
+    mod = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    with _socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(mod.app, host="127.0.0.1", port=port, log_level="warning"))
+    thread = _threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    while not server.started:
+        _time.sleep(0.05)
+
+    class Portal:
+        base = f"http://127.0.0.1:{port}"
+        module = mod
+
+        def url(self, variant: str) -> str:
+            return f"{self.base}/apply/{variant}"
+
+        @property
+        def submissions(self) -> list[dict]:
+            return mod.SUBMISSIONS
+
+    yield Portal()
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+@pytest.fixture
+def clean_portal(portal):
+    portal.module.SUBMISSIONS.clear()
+    return portal
+
+
+def documents_ready_app(api: "Api") -> str:
+    """Fictional profile, approved Android job, verified CV and cover letter."""
+    load_test_profile(api)
+    job = approved_job(api)
+    app_id = job["application"]["id"]
+    r = api.post(f"/applications/{app_id}/documents/generate", {})
+    assert r.status_code == 200 and r.json()["state"] == "documents_ready", r.text
+    return app_id
+
+
+def answer(api: "Api", app_id: str, answers: dict[str, str | None]) -> dict:
+    """Resolve flagged fields: a string answers/confirms, None leaves an optional field empty."""
+    detail = api.get(f"/applications/{app_id}").json()
+    by_key = {f["field_key"]: f for f in detail["form_fields"]}
+    for key, value in answers.items():
+        body = {"skip": True} if value is None else {"proposed_value": value}
+        r = api.patch(f"/applications/{app_id}/form-fields/{by_key[key]['id']}", body, key=None)
+        assert r.status_code == 200, (key, r.text)
+    return api.get(f"/applications/{app_id}").json()
+
+
+STANDARD_ANSWERS = {"linkedin": None, "salary": None, "start": None, "permit": "yes", "sponsorship": "no", "source": "Job board",
+                    "gender": None, "privacy": "checked", "motivation": "I enjoy building Android system services."}

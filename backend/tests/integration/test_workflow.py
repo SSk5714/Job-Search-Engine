@@ -117,7 +117,7 @@ def test_submit_is_blocked_without_approval(api, db):
     app_id = uuid.UUID(job["application"]["id"])
     api.post(f"/jobs/{job['id']}/decision", {"decision": "approve"})
     _prepare_for_review(db, app_id)
-    r = api.post(f"/applications/{app_id}/submit", key=None)
+    r = api.post(f"/applications/{app_id}/submit")
     assert r.status_code == 409 and r.json()["error"]["code"] == "approval_required"
     with pytest.raises(DomainError) as e:
         transitions.apply(db, app_id, State.SUBMITTED, Actor.ORCHESTRATOR)
@@ -142,14 +142,15 @@ def test_editing_a_form_value_invalidates_the_approval(api, db):
     detail = api.get(f"/applications/{app_id}").json()
     salary = next(f for f in detail["form_fields"] if f["field_key"] == "salary")
     api.patch(f"/applications/{app_id}/form-fields/{salary['id']}", {"proposed_value": "Negotiable"}, key=None)
-    assert api.post(f"/applications/{app_id}/approve").status_code == 200
+    r = api.post(f"/applications/{app_id}/approve")
+    assert r.status_code == 200, r.text
     assert api.get(f"/applications/{app_id}").json()["approval"] is not None
 
     email = next(f for f in detail["form_fields"] if f["field_key"] == "email")
     r = api.patch(f"/applications/{app_id}/form-fields/{email['id']}", {"proposed_value": "other@example.org"},
                   key=None)
     assert r.json()["approval_invalidated"] is True
-    r = api.post(f"/applications/{app_id}/submit", key=None)
+    r = api.post(f"/applications/{app_id}/submit")
     assert r.json()["error"]["code"] == "approval_required"
 
 
@@ -159,7 +160,7 @@ def test_changed_document_makes_approval_stale(api, db):
     api.post(f"/jobs/{job['id']}/decision", {"decision": "approve"})
     _prepare_for_review(db, app_id)
     salary = db.scalar(select(m.FormField).where(m.FormField.field_key == "salary"))
-    salary.proposed_value = "Negotiable"
+    salary.proposed_value, salary.value_source = "Negotiable", "user"  # your answer, as the UI records it
     db.commit()
     assert api.post(f"/applications/{app_id}/approve").status_code == 200
 
@@ -168,7 +169,7 @@ def test_changed_document_makes_approval_stale(api, db):
                       profile_version_id=db.scalar(select(m.CandidateProfile.current_version_id)),
                       content_hash="changed", status="ready", verification={"unsupported_claims": []}))
     db.commit()
-    r = api.post(f"/applications/{app_id}/submit", key=None)
+    r = api.post(f"/applications/{app_id}/submit")
     assert r.json()["error"]["code"] == "approval_stale"
     db.expire_all()
     assert approvals.valid_approval(db, app_id) is None  # invalidation persisted

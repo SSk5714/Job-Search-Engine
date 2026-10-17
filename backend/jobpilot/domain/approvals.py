@@ -37,7 +37,9 @@ def document_hashes(db: Session, application_id: uuid.UUID) -> dict[str, str]:
 
 def form_hash(db: Session, application_id: uuid.UUID) -> str:
     fields = db.scalars(select(m.FormField).where(m.FormField.application_id == application_id)).all()
-    return _sha(sorted((f.field_key, f.proposed_value) for f in fields))
+    app = db.get(m.Application, application_id)
+    destination = app.apply_url if app else None
+    return _sha([destination, sorted((f.field_key, f.proposed_value, f.value_source == "skipped") for f in fields)])
 
 
 def valid_approval(db: Session, application_id: uuid.UUID) -> m.Approval | None:
@@ -51,12 +53,13 @@ def valid_approval(db: Session, application_id: uuid.UUID) -> m.Approval | None:
 
 
 def unresolved_fields(db: Session, application_id: uuid.UUID) -> list[m.FormField]:
+    """Fields flagged for you that you have neither answered/confirmed nor chosen to leave empty."""
     return list(
         db.scalars(
             select(m.FormField).where(
                 m.FormField.application_id == application_id,
                 m.FormField.needs_manual.is_(True),
-                m.FormField.proposed_value.is_(None),
+                (m.FormField.value_source.is_(None)) | (m.FormField.value_source.not_in(["user", "skipped"])),
             )
         ).all()
     )

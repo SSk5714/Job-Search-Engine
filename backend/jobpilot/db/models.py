@@ -233,6 +233,10 @@ class Application(Base, Timestamped):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     next_follow_up: Mapped[date | None] = mapped_column(Date)
     outcome: Mapped[str | None] = mapped_column(String(64))
+    # Phase 4: where the application form lives (its host is the only one the browser may visit)
+    apply_url: Mapped[str | None] = mapped_column(Text)
+    prepared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    preparation: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     job: Mapped[Job] = relationship()
 
 
@@ -276,6 +280,11 @@ class FormField(Base, Timestamped):
     label: Mapped[str] = mapped_column(Text)
     field_type: Mapped[str] = mapped_column(String(32))
     sensitivity: Mapped[str] = mapped_column(String(16), default="normal")  # normal | sensitive | legal
+    category: Mapped[str] = mapped_column(String(32), default="unknown", server_default="unknown")
+    selector: Mapped[str | None] = mapped_column(Text)
+    options: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    required: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     proposed_value: Mapped[str | None] = mapped_column(Text)
     value_source: Mapped[str | None] = mapped_column(String(64))  # fact:<id> | user | none
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
@@ -317,7 +326,9 @@ class SubmissionAttempt(Base, Timestamped):
     approval_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("approvals.id"))
     idempotency_key: Mapped[str] = mapped_column(String(128), unique=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|succeeded|failed|unknown
+    mode: Mapped[str] = mapped_column(String(16), default="browser", server_default="browser")  # browser|manual
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     result: Mapped[str | None] = mapped_column(Text)
     evidence_path: Mapped[str | None] = mapped_column(Text)
 

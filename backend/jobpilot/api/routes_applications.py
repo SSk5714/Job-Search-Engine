@@ -16,6 +16,7 @@ from jobpilot.api.deps import current_user, run_idempotent
 from jobpilot.api.routes_jobs import latest_evaluations
 from jobpilot.db import models as m
 from jobpilot.db.session import get_db
+from jobpilot.agents.preparation import service as preparation
 from jobpilot.documents import service as documents
 from jobpilot.domain import approvals, transitions
 from jobpilot.domain.errors import DomainError, NotFound
@@ -71,6 +72,11 @@ def _doc_out(d: m.Document) -> dict:
             "generator": d.generator, "model_version": d.model_version, "created_at": d.created_at}
 
 
+def _attempt_out(a: m.SubmissionAttempt) -> dict:
+    return {"id": a.id, "status": a.status, "mode": a.mode, "result": a.result, "evidence": a.evidence_path,
+            "started_at": a.started_at, "finished_at": a.finished_at}
+
+
 def _get(db: Session, app_id: uuid.UUID) -> m.Application:
     app = db.get(m.Application, app_id)
     if app is None:
@@ -93,8 +99,17 @@ def _detail(db: Session, app: m.Application) -> dict:
         "history": [s.history(h) for h in hist],
         "documents": [_doc_out(d) for d in docs],
         "form_fields": [{"id": f.id, "field_key": f.field_key, "label": f.label, "field_type": f.field_type,
-                         "sensitivity": f.sensitivity, "proposed_value": f.proposed_value,
-                         "needs_manual": f.needs_manual, "confidence": f.confidence} for f in fields],
+                         "category": f.category, "sensitivity": f.sensitivity, "proposed_value": f.proposed_value,
+                         "value_source": f.value_source, "needs_manual": f.needs_manual, "required": f.required,
+                         "options": f.options, "confidence": f.confidence, "position": f.position}
+                        for f in sorted(fields, key=lambda f: f.position)],
+        "unresolved_fields": [f.field_key for f in approvals.unresolved_fields(db, app.id)],
+        "apply_url": app.apply_url,
+        "preparation": app.preparation or {},
+        "prepared_at": app.prepared_at,
+        "submission_attempts": [_attempt_out(a) for a in db.scalars(
+            select(m.SubmissionAttempt).where(m.SubmissionAttempt.application_id == app.id)
+            .order_by(m.SubmissionAttempt.started_at)).all()],
         "approval": {"id": appr.id, "approved_at": appr.approved_at} if appr else None,
         "allowed_transitions": [t.value for t in transitions.allowed_targets(db, app, Actor.USER)],
     }
@@ -143,25 +158,55 @@ def update_tracking(app_id: uuid.UUID, body: TrackerPatch, db: Session = Depends
 
 class FieldPatch(BaseModel):
     proposed_value: str | None = Field(default=None, max_length=4000)
-    needs_manual: bool | None = None
+    skip: bool = False  # leave this optional field empty on purpose
 
 
 @router.patch("/{app_id}/form-fields/{field_id}")
 def edit_field(app_id: uuid.UUID, field_id: uuid.UUID, body: FieldPatch, db: Session = Depends(get_db)):
-    """Any edit to a proposed value invalidates the current approval."""
+    """Your answer or confirmation for one field. Any change invalidates the current approval."""
     app = _get(db, app_id)
+    if app.state in (State.SUBMITTED, State.FOLLOW_UP, State.CLOSED):
+        raise DomainError("invalid_state", "This application was already submitted")
     field = db.get(m.FormField, field_id)
     if field is None or field.application_id != app.id:
         raise NotFound("Form field")
-    changes = body.model_dump(exclude_unset=True)
-    for k, v in changes.items():
-        setattr(field, k, v)
-    if "proposed_value" in changes:
-        field.value_source = "user"
+    if body.skip:
+        if field.required:
+            raise DomainError("required_field", "This field is required by the form and can't be left empty",
+                              status_code=422)
+        field.proposed_value, field.value_source = None, "skipped"
+    else:
+        value = (body.proposed_value or "").strip()
+        if not value:
+            raise DomainError("validation_error", "Enter a value, or choose to leave the field empty", status_code=422)
+        if field.field_type in ("select", "radio") and field.options and \
+                value not in [str(o.get("value")) for o in field.options]:
+            raise DomainError("validation_error", "Choose one of the form's options", status_code=422)
+        if field.field_type == "checkbox" and value.lower() not in ("checked", "unchecked"):
+            raise DomainError("validation_error", "Checkboxes take 'checked' or 'unchecked'", status_code=422)
+        if field.field_type == "file":
+            raise DomainError("validation_error", "Files are attached from your approved documents", status_code=422)
+        field.proposed_value, field.value_source = value, "user"
     db.flush()
-    invalidated = approvals.invalidate(db, app.id, f"form field '{field.field_key}' edited")
+    invalidated = approvals.invalidate(db, app.id, f"form field '{field.field_key}' changed")
+    app.last_action = f"field '{field.label[:40]}' updated"
     db.commit()
     return {**_detail(db, app), "approval_invalidated": invalidated}
+
+
+class PrepareIn(BaseModel):
+    apply_url: str | None = Field(default=None, max_length=2000)
+
+
+@router.post("/{app_id}/prepare")
+def prepare_form(app_id: uuid.UUID, body: PrepareIn, request: Request, db: Session = Depends(get_db)):
+    """Open the application form in an isolated browser, fill only safe values from your
+    verified facts, attach your verified documents, screenshot it. Never submits."""
+    def handler():
+        preparation.prepare(db, app_id, body.apply_url)
+        return 200, _detail(db, _get(db, app_id))
+
+    return run_idempotent(db, request, f"POST /applications/{app_id}/prepare", body.model_dump(), handler)
 
 
 @router.post("/{app_id}/approve")
@@ -177,24 +222,76 @@ def approve(app_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/{app_id}/submit")
-def submit(app_id: uuid.UUID, db: Session = Depends(get_db)):
-    """Phase 1 enforces the guard only; the browser submission arrives in Phase 4."""
-    app = _get(db, app_id)
-    if app.state != State.AWAITING_USER_REVIEW:
-        raise DomainError("invalid_state", "Only applications awaiting your review can be submitted",
-                          {"state": app.state})
+def submit(app_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
+    """The one explicit action that sends an application. Requires your approval of these exact
+    documents and values. The attempt is recorded before the browser starts; an unclear result
+    stops everything until you check."""
+    key = request.headers.get("idempotency-key")
+    if not key:
+        raise DomainError("idempotency_key_required", "Send an Idempotency-Key header", status_code=400)
     try:
-        approvals.require_fresh_approval(db, app)
+        app, attempt, new = preparation.start_attempt(db, app_id, key, mode="browser")
     except DomainError as err:
         if err.code == "approval_stale":
             db.commit()  # keep the invalidation
         raise
-    unknown = db.scalar(select(m.SubmissionAttempt).where(m.SubmissionAttempt.application_id == app.id,
-                                                          m.SubmissionAttempt.status == "unknown"))
-    if unknown:
-        raise DomainError("submission_outcome_unknown",
-                          "A previous attempt ended ambiguously; check the portal before trying again")
-    raise DomainError("not_implemented", "Automated submission arrives in Phase 4", status_code=501)
+    db.commit()  # the attempt exists before anything is sent
+    if new:
+        try:
+            preparation.run_browser_submission(db, app, attempt)
+            db.commit()
+        except Exception:
+            db.rollback()
+            attempt = db.get(m.SubmissionAttempt, attempt.id)
+            attempt.status, attempt.result = "unknown", "Internal error during submission; check the portal"
+            db.commit()
+            raise
+    return {"attempt": _attempt_out(db.get(m.SubmissionAttempt, attempt.id)), **_detail(db, _get(db, app_id))}
+
+
+class OutcomeIn(BaseModel):
+    submitted: bool
+    note: str | None = Field(default=None, max_length=300)
+
+
+@router.post("/{app_id}/submission-outcome")
+def submission_outcome(app_id: uuid.UUID, body: OutcomeIn, db: Session = Depends(get_db)):
+    """After an unclear result: tell JobPilot whether the application really arrived."""
+    preparation.confirm_outcome(db, app_id, body.submitted, body.note)
+    db.commit()
+    return _detail(db, _get(db, app_id))
+
+
+class ManualIn(BaseModel):
+    note: str | None = Field(default=None, max_length=300)
+
+
+@router.post("/{app_id}/mark-submitted")
+def mark_submitted(app_id: uuid.UUID, body: ManualIn, request: Request, db: Session = Depends(get_db)):
+    """For sites JobPilot must not automate: you applied yourself; record it (approval still required)."""
+    key = request.headers.get("idempotency-key")
+    if not key:
+        raise DomainError("idempotency_key_required", "Send an Idempotency-Key header", status_code=400)
+    try:
+        preparation.mark_manual_submission(db, app_id, key, body.note)
+    except DomainError as err:
+        if err.code == "approval_stale":
+            db.commit()
+        raise
+    db.commit()
+    return _detail(db, _get(db, app_id))
+
+
+@router.get("/{app_id}/evidence")
+def evidence(app_id: uuid.UUID, file: str, db: Session = Depends(get_db)):
+    _get(db, app_id)
+    prefix = f"evidence/{app_id}/"
+    if not file.startswith(prefix) or ".." in file or not file.endswith(".png"):
+        raise NotFound("Evidence")
+    path = (documents.storage_root() / file).resolve()
+    if documents.storage_root().resolve() not in path.parents or not path.exists():
+        raise NotFound("Evidence")
+    return FileResponse(path, media_type="image/png")
 
 
 class GenerateIn(BaseModel):

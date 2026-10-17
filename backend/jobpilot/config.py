@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     availability_recheck_hours: int = 24
     documents_dir: str = "./storage/documents"  # generated CV/cover-letter files (keep private, back up)
 
+    # Application form preparation (Playwright)
+    browser_headless: bool = True
+    browser_timeout_s: float = 30.0
+    browser_allow_private_hosts: bool = False  # only for local test portals
+    follow_up_days: int = 10
+
 
 @lru_cache
 def get_settings() -> Settings:

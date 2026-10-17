@@ -60,7 +60,9 @@ def _form_fields_resolved(db: Session, app: m.Application) -> str | None:
 
 def _manual_apply_source(db: Session, app: m.Application) -> str | None:
     job = db.get(m.Job, app.job_id)
-    return None if job and job.source.access_mode == "manual" else "Only manual-apply sources skip form preparation"
+    if (app.preparation or {}).get("mode") == "manual" or (job and job.source.access_mode == "manual"):
+        return None
+    return "Only manual applications skip form preparation"
 
 
 def _submission_succeeded(db: Session, app: m.Application) -> str | None:

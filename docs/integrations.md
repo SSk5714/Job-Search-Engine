@@ -18,7 +18,8 @@ the same rule: **Untested** adapters become **Automated** only after their first
 | Rule-based matching `rules-v0` | Implemented | Fallback whenever Claude is off, over budget or failing |
 | DOCX/PDF generation (python-docx, ReportLab) | Implemented | `test_documents.py`: PDFs text-extracted, DOCX re-opened |
 | Claude document writing | Implemented, **live-untested** | Fake provider that fabricates a claim; the verifier catches it |
-| Playwright form preparation | Pending (Phase 4) | — |
+| Playwright form preparation | Implemented, **tested against the mock portal only** | `test_preparation.py`, `test_field_classifier.py`, e2e walkthrough; real employer sites untested |
+| Browser submission after approval | Implemented, **tested against the mock portal only** | Success, validation failure, unclear result, HTTP 500, CAPTCHA, sign-in, off-site, retries |
 | Scheduler (Celery beat) | Pending (Phase 5) | Health shows `not_implemented` |
 | Independent monitor + alerts | Pending (Phase 5) | Health shows `not_implemented` |
 | Email notifications | Pending (Phase 5) | — |

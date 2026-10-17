@@ -185,7 +185,7 @@ def test_editing_after_approval_invalidates_it(api, db):
     r = api.c.put(f"/api/v1/applications/{app_id}/documents/cover_letter", json={"content": content},
                   headers={"X-Requested-With": "jobpilot"})
     assert r.status_code == 200 and r.json()["approval"] is None
-    assert api.post(f"/applications/{app_id}/submit", key=None).json()["error"]["code"] == "approval_required"
+    assert api.post(f"/applications/{app_id}/submit").json()["error"]["code"] == "approval_required"
 
 
 def test_generation_requires_an_approved_job(api, db):

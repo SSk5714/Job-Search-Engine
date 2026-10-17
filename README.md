@@ -5,10 +5,10 @@ a **verified** candidate profile, and tracks every application. Nothing is ever 
 without your explicit approval.
 
 One deterministic orchestrator owns all workflow state in PostgreSQL. Specialized workers
-(discovery, matching, and later documents and form preparation) only return validated
+(discovery, matching, documents and form preparation) only return validated
 results, and AI is used only where language understanding helps.
 
-**Status: Phase 3 of 6 (tailored CVs and cover letters) complete.** See [what works today](#what-works-today)
+**Status: Phase 4 of 6 (form preparation and approved submission) complete.** See [what works today](#what-works-today)
 and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 
 ![Job Review](docs/screenshots/04-job-review.png)
@@ -25,13 +25,16 @@ and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 - **Tailored CV and cover letter** per approved job, written by Claude or by a no-AI template. Every sentence cites the verified facts it rests on, and a deterministic fact checker flags anything the cited facts don't support (invented skills, rounded-up durations, language or work-permit claims, promotions, "learning" skills sold as experience).
 - ATS-friendly DOCX and PDF output (single column, standard headings, real text) with full version history. Editing a sentence creates a new verified version and invalidates any approval.
 - Grouped profile entries (each job, degree and project), contact details that are never sent to Claude, profile JSON import/export, and an untailored master CV download
+- **Form preparation**: an isolated headless browser opens only the employer's application page, reads the form, fills what your verified profile supports, attaches your verified CV and letter, takes a screenshot and never clicks submit. Salary, start date, work permit, sponsorship, consent, disability, gender, nationality and date of birth are always left to you (with a hint from your profile where one exists).
+- CAPTCHAs, sign-in walls, redirects to other sites, and LinkedIn, StepStone, Indeed and XING become a manual handoff: you apply yourself with the verified documents and record it.
+- **Final review and submission**: you approve the exact documents and answers; changing either cancels the approval. Submission is recorded before the browser starts, runs once per approval, and an unclear result (including a server error after sending) stops the workflow with a critical alert until you confirm what happened. Follow-up is scheduled 10 days later.
 - The full application state machine with guards, history, optimistic locking and idempotent writes
 - Approval binding to document and form-value hashes, with invalidation on any change (backend)
 - Profile editor with versioning and per-fact verification
 - Dashboard, Job Discovery, Job Review, Tracker with history drawer, CSV export, Settings & Health
 - Honest status: sources and services that aren't built are labelled Planned, Manual or not implemented
 
-Not yet: form preparation and submission (Phase 4), scheduler, monitor and notifications (5),
+Not yet: scheduler, monitor and notifications (5),
 production hardening (6).
 
 > The real sources and Claude were tested against recorded responses and a fake model, because the
@@ -83,6 +86,8 @@ Without `JOBPILOT_REDIS_URL`, search runs execute inside the API process.
 2. **Job Discovery**: tick Bundesagentur für Arbeit (no setup needed) and add Greenhouse, Lever or Personio company names, then press **Run search**.
 3. **Job Review**: approve, keep for later, or reject.
 4. **Application Review**: generate the CV and cover letter, fix anything flagged, then download PDF or DOCX.
+   Paste the application page URL and press **Prepare form**, answer the fields marked "needs you",
+   approve, then **Submit application now** (or apply yourself and press **I submitted it myself**).
 5. **Tracker**: follow-ups, outcomes, full history, CSV export.
 
 ## Tests
@@ -90,13 +95,18 @@ Without `JOBPILOT_REDIS_URL`, search runs execute inside the API process.
 ```bash
 cd backend
 createdb jobpilot_test
-pytest                                   # 136 tests on a real Postgres via the migrations
+pytest                                   # 174 tests on a real Postgres via the migrations
 
 # Browser walkthrough against a running, freshly migrated stack
+python mock-portal/mock_portal.py &       # practice application portal on :8100
 JOBPILOT_E2E_BASE_URL=http://localhost:3000 JOBPILOT_E2E_PASSWORD=... pytest tests/e2e
 ```
 
-Latest results: [docs/test-results/phase-3.md](docs/test-results/phase-3.md).
+The mock portal (`docker compose --profile demo up mock-portal`) has variants for a normal form,
+CAPTCHA, sign-in wall, unclear result, server error and off-site redirect at `/apply/<variant>`.
+To try it from the app, set `JOBPILOT_BROWSER_ALLOW_PRIVATE_HOSTS=true` (local addresses are blocked otherwise).
+
+Latest results: [docs/test-results/phase-4.md](docs/test-results/phase-4.md).
 
 ## Configuration
 
@@ -153,12 +163,14 @@ wireframes, security model, acceptance-test plan) is in
 - `rules-v0` (the fallback) is keyword matching and misses synonyms and context.
 - Documents are English only. The template generator uses fixed sentence patterns: correct, but plainer than Claude's writing.
 - The fact checker is rule-based. It catches unsupported skills, numbers, language and permit claims, but it cannot judge tone or emphasis, so read every document before you send it.
+- Form preparation runs inside the request (about 5–20 s) and headless only, so it cannot sign in to portal accounts; those sites become manual handoffs.
+- Field recognition is rule-based (English and German labels). Unusual forms leave more fields for you, and multi-page or JavaScript-heavy portals (Workday, SuccessFactors) are not supported yet and fall back to manual.
+- Browser submission was tested only against the mock portal. Watch your first real submissions closely.
 - Single user. No password change or login rate limiting yet (Phase 6).
 - No scheduler or independent monitor yet (Phase 5); runs are started by hand.
 - The seed profile is unverified on purpose. Fill in eligibility, languages and the period since August 2025 before relying on scores.
 
 ## Next steps
 
-Phase 4: permitted Playwright form preparation against a mock portal first, field mapping from
-verified facts with sensitive fields always left to you, document attachment, and the final
-approval screen that binds your approval to the exact document and form-value versions.
+Phase 5: scheduled searches (Celery beat), an independent monitor that checks stuck runs and
+applications, and email/in-app notifications for new matches, failures and follow-ups.

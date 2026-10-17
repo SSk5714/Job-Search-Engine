@@ -200,3 +200,26 @@ current status.
   cover letter are both `ready` (zero unsupported claims, no structure problems).
 - **Files.** DOCX and PDF are rendered at save time into `JOBPILOT_DOCUMENTS_DIR/<application>/<kind>-v<n>.*`
   and served only through authenticated download endpoints.
+
+## 11. Form preparation and submission (as built, Phase 4)
+
+- **Isolated browser.** Each preparation or submission uses a fresh Playwright context: navigation limited to the
+  application page's host, `file:`, `data:` and private addresses blocked (unless `JOBPILOT_BROWSER_ALLOW_PRIVATE_HOSTS`),
+  downloads off, nothing persisted between runs. Blocked requests are listed for you.
+- **Fields.** The page's form is read into `form_fields` (label, type, options, required, selector). A rule table
+  (English and German) classifies each field. Values come only from verified facts or verified documents; auto-fill
+  needs confidence ≥ 0.9, otherwise you confirm. Protected categories — salary, notice period/start date, work
+  authorization, sponsorship, disability, diversity (gender, nationality, birth date), criminal record, consent — are
+  never proposed; a hint from your profile is shown instead.
+- **Handoffs.** CAPTCHA, sign-in walls, off-site redirects, no form found, and LinkedIn/StepStone/Indeed/XING switch the
+  application to manual mode. The verified documents and a screenshot stay available; you apply and record it.
+- **Approval.** An application can be approved only when every field is answered by your profile, by you, or
+  deliberately left empty (never a required one). The form hash covers the URL, every field value and skip flag.
+- **Submission.** `POST /submit` needs an Idempotency-Key and a valid approval. The attempt row is written before the
+  browser starts; the browser replays exactly the approved values, checks them, clicks submit and classifies the page:
+  success text → `submitted`; visible validation errors → `failed` (nothing sent); anything else, including HTTP 5xx →
+  `unknown`, which moves the application to `needs_manual_input` with a critical notification. It is never retried
+  automatically; you confirm the outcome. A partial unique index allows one successful submission per application.
+- **Evidence.** Screenshots of the prepared form and of the result page are kept per application and served only to the
+  signed-in user.
+
