@@ -1,0 +1,35 @@
+[project]
+name = "jobpilot"
+version = "0.1.0"
+description = "JobPilot Europe — orchestrated job-application pipeline (backend, workers, monitor)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.115.14",
+  "uvicorn[standard]==0.32.1",
+  "sqlalchemy==2.0.55",
+  "alembic==1.14.1",
+  "psycopg[binary]==3.2.13",
+  "pydantic==2.10.6",
+  "pydantic-settings==2.6.1",
+  "argon2-cffi==23.1.0",
+  "itsdangerous==2.2.0",
+  "celery[redis]==5.4.0",
+  "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.3.5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["jobpilot*"]
+
+[tool.setuptools.package-data]
+"jobpilot.agents.discovery.adapters" = ["fixtures/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

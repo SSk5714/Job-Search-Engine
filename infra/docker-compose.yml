@@ -1,0 +1,54 @@
+# Local stack: docker compose -f infra/docker-compose.yml --env-file .env up --build
+# Web UI on http://localhost:3000, API on http://localhost:8000 (docs at /docs).
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jobpilot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobpilot}
+      POSTGRES_DB: jobpilot
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobpilot"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  api:
+    build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
+    env_file: ../.env
+    environment:
+      JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
+      JOBPILOT_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ["8000:8000"]
+
+  worker:
+    build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
+    env_file: ../.env
+    environment:
+      JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
+      JOBPILOT_REDIS_URL: redis://redis:6379/0
+    command: celery -A jobpilot.worker worker -l info --concurrency 2
+    depends_on:
+      api: { condition: service_started }
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/docker/frontend.Dockerfile
+      args: { JOBPILOT_API_URL: "http://api:8000" }
+    depends_on: [api]
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:
