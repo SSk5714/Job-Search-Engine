@@ -73,7 +73,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build images and smoke-test the full stack (incl. backup and restore drill)
-        run: infra/smoke-test.sh
+        run: |
+          set -o pipefail
+          infra/smoke-test.sh 2>&1 | tee smoke-output.txt
       - name: Container logs
         if: always()
         run: cat smoke-logs.txt || true
+      - name: Report failure details as annotations
+        if: failure()
+        run: python3 .github/annotate_failure.py smoke-output.txt smoke-logs.txt

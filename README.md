@@ -8,7 +8,7 @@ One deterministic orchestrator owns all workflow state in PostgreSQL. Specialize
 (discovery, matching, documents and form preparation) only return validated
 results, and AI is used only where language understanding helps.
 
-**Status: Phase 5 of 6 (scheduling, monitoring and notifications) complete.** See [what works today](#what-works-today)
+**Status: all 6 phases complete (production readiness in Phase 6).** See [what works today](#what-works-today)
 and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 
 ![Job Review](docs/screenshots/04-job-review.png)
@@ -37,8 +37,11 @@ and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 - Profile editor with versioning and per-fact verification
 - Dashboard, Job Discovery, Job Review, Tracker with history drawer, CSV export, Settings & Health
 - Honest status: sources and services that aren't built are labelled Planned, Manual or not implemented
-
-Not yet: production hardening (6): security review, backups and restore drill, deployment guide.
+- **Production readiness:** sign-in limits, sign-out everywhere, password change, security headers, production
+  start-up checks ([SECURITY.md](SECURITY.md)); daily verified backups with a tested restore; usage and cost overview;
+  HTTPS deployment with Caddy ([docs/deployment.md](docs/deployment.md)); operations and troubleshooting guide
+  ([docs/operations.md](docs/operations.md)); CI that runs every test, audits dependencies, builds the Docker images
+  and smoke-tests the whole stack including a restore drill
 
 > The real sources and Claude were tested against recorded responses and a fake model, because the
 > build environment has no outbound access or API key. The app labels them **Untested** until your
@@ -47,16 +50,12 @@ Not yet: production hardening (6): security review, backups and restore drill, d
 ## Quick start (Docker)
 
 ```bash
-cp .env.example .env        # set JOBPILOT_SECRET_KEY and the admin password
-docker compose -f infra/docker-compose.yml --env-file .env up --build
+cp .env.example .env        # set JOBPILOT_SECRET_KEY, JOBPILOT_ADMIN_PASSWORD (12+), POSTGRES_PASSWORD
+docker compose -f infra/docker-compose.yml --env-file .env up -d --build
 ```
 
-Open http://localhost:3000 and sign in with the admin user from `.env`. API docs are at
-http://localhost:8000/docs.
-
-> The Docker files were written and validated with `docker compose config`, but not built in
-> the environment where Phase 1 was developed. If a build fails, use the local setup below
-> and open an issue.
+Open http://localhost:3000 and sign in with the admin user from `.env`, then change the password in
+Settings & Health. For a server with HTTPS, see [docs/deployment.md](docs/deployment.md).
 
 ## Local development
 
@@ -102,7 +101,7 @@ Without `JOBPILOT_REDIS_URL`, search runs execute inside the API process.
 ```bash
 cd backend
 createdb jobpilot_test
-pytest                                   # 219 tests, incl. real Celery beat + worker + Redis on a real Postgres via the migrations
+pytest                                   # 241 tests, incl. real Celery beat + worker + Redis on a real Postgres via the migrations
 
 # Browser walkthrough against a running, freshly migrated stack
 python mock-portal/mock_portal.py &       # practice application portal on :8100
@@ -113,7 +112,7 @@ The mock portal (`docker compose --profile demo up mock-portal`) has variants fo
 CAPTCHA, sign-in wall, unclear result, server error and off-site redirect at `/apply/<variant>`.
 To try it from the app, set `JOBPILOT_BROWSER_ALLOW_PRIVATE_HOSTS=true` (local addresses are blocked otherwise).
 
-Latest results: [docs/test-results/phase-5.md](docs/test-results/phase-5.md).
+Latest results: [docs/test-results/phase-6.md](docs/test-results/phase-6.md).
 
 ## Configuration
 
@@ -132,6 +131,11 @@ Latest results: [docs/test-results/phase-5.md](docs/test-results/phase-5.md).
 | `JOBPILOT_DOCUMENTS_DIR` | no | Where generated documents are stored (default `./storage/documents`; personal data, back it up) |
 | `JOBPILOT_SCHEDULER_INTERVAL_S`, `JOBPILOT_MONITOR_INTERVAL_S` | no | Default 60 |
 | `JOBPILOT_RUN_STALL_MINUTES` | no | A run still running after this is marked failed (default 30) |
+| `JOBPILOT_ENV` | no | `production` (Docker default) refuses weak secrets and hides API docs; `development` only warns |
+| `POSTGRES_PASSWORD` | Docker | Database password; compose refuses to start without it |
+| `JOBPILOT_BACKUP_AT`, `JOBPILOT_BACKUP_KEEP`, `JOBPILOT_BACKUP_DIR` | no | Daily backup time (Berlin, default 03:15; empty disables), how many to keep (14), where |
+| `JOBPILOT_LOGIN_MAX_FAILURES`, `JOBPILOT_LOGIN_WINDOW_MINUTES` | no | Sign-in limit (default 5 per 15 minutes) |
+| `JOBPILOT_DOMAIN` | server | Your domain for HTTPS (docker-compose.prod.yml) |
 | `JOBPILOT_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_STARTTLS`, `_SSL` | for email | SMTP server; email stays off without it |
 | `JOBPILOT_EMAIL_FROM`, `JOBPILOT_NOTIFY_EMAIL_TO` | for email | Sender and your address (keep in `.env`, never in the repository) |
 | `JOBPILOT_PUBLIC_BASE_URL` | no | Base of links in emails |
@@ -152,12 +156,16 @@ backend/
     ai/            provider interface, Claude client (structured outputs, pricing)
     documents/     content schema, fact book, verifier, template + Claude generators, DOCX/PDF renderers
     api/           routers, auth, CSRF, idempotency
-    db/            models (27 tables), session, heartbeats
+    db/            models (29 tables), session, heartbeats
+    ops/           backups, verify, restore (python -m jobpilot.ops)
+    security.py    start-up checks, security headers, request size limit
     worker.py      Celery app
     bootstrap.py   sources, seed profile, default search, admin user
   migrations/      Alembic
   tests/           unit/, integration/, e2e/
 frontend/src/      Next.js App Router pages, typed API client
+infra/             Dockerfiles, compose (+ prod with Caddy HTTPS), smoke-test.sh
+.github/workflows/ CI: tests, lint, audits, build, Docker smoke test
 infra/             docker-compose.yml, Dockerfiles
 docs/              design pack, integrations, test results, screenshots
 ```
@@ -181,7 +189,7 @@ wireframes, security model, acceptance-test plan) is in
 - Form preparation runs inside the request (about 5–20 s) and headless only, so it cannot sign in to portal accounts; those sites become manual handoffs.
 - Field recognition is rule-based (English and German labels). Unusual forms leave more fields for you, and multi-page or JavaScript-heavy portals (Workday, SuccessFactors) are not supported yet and fall back to manual.
 - Browser submission was tested only against the mock portal. Watch your first real submissions closely.
-- Single user. No password change or login rate limiting yet (Phase 6).
+- Single user, no two-factor sign-in; see [SECURITY.md](SECURITY.md) for the other known limits.
 - Alerts and emails reach you only while the scheduler (for email) and monitor processes run. The monitor checks the scheduler and vice versa, but if both stop, nothing alerts you; Settings & Health then shows both as down.
 - Email is plain SMTP. Tested against a local SMTP server, not a real provider (Gmail and others need an app password).
 - Follow-up reminders and schedules use Europe/Berlin time.
@@ -189,6 +197,7 @@ wireframes, security model, acceptance-test plan) is in
 
 ## Next steps
 
-Phase 6: production readiness: security review, login rate limiting and password change, database and
-documents backup with a tested restore, Docker images built and smoke-tested, deployment and troubleshooting
-guides, usage and cost overview.
+All six phases are built. Before relying on it daily: deploy it ([docs/deployment.md](docs/deployment.md)), add your
+Claude API key and real sources so they move from **Untested** to **Automated**, and watch your first real
+submissions closely. Ideas for later: two-factor sign-in, more job sources with explicit permission, German-language
+documents.

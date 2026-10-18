@@ -1,0 +1,133 @@
+{
+  "_note": "Fictional employers on example domains. Three feed shapes exercise normalization; includes a URL-variant duplicate, a cross-source duplicate and a closed listing.",
+  "feed_a": [
+    {
+      "refnr": "A-1001",
+      "titel": "Android Developer (m/w/d)",
+      "arbeitgeber": "Nordlicht Mobility GmbH",
+      "arbeitsort": {"ort": "Chemnitz", "land": "Deutschland"},
+      "days_ago": 2,
+      "externeUrl": "https://careers.nordlicht-mobility.example/jobs/android-developer",
+      "beschreibung": "We build Android apps for public transport. You develop features in Kotlin and Java for Android, work with Gradle and REST APIs. 1-2 years experience. Gute Deutschkenntnisse (B2) und English.",
+      "arbeitszeit": "Vollzeit"
+    },
+    {
+      "refnr": "A-1002",
+      "titel": "Junior Java Backend Developer",
+      "arbeitgeber": "Saxonia Data AG",
+      "arbeitsort": {"ort": "Dresden", "land": "Deutschland"},
+      "days_ago": 5,
+      "externeUrl": "https://jobs.saxonia-data.example/positions/1002",
+      "beschreibung": "Join our backend team building REST services with Java, Spring Boot, JPA and MySQL. Docker is a plus. Working language is English.",
+      "arbeitszeit": "Vollzeit"
+    },
+    {
+      "refnr": "A-1003",
+      "titel": "Werkstudent Softwareentwicklung (m/w/d)",
+      "arbeitgeber": "Erzgebirge Embedded GmbH",
+      "arbeitsort": {"ort": "Chemnitz", "land": "Deutschland"},
+      "days_ago": 1,
+      "externeUrl": "https://erzgebirge-embedded.example/karriere/werkstudent-software",
+      "beschreibung": "Du bist immatrikuliert und unterstützt uns 20 Stunden pro Woche bei C++ und Python Tools unter Linux. Deutsch fließend.",
+      "arbeitszeit": "Teilzeit"
+    },
+    {
+      "refnr": "A-1004",
+      "titel": "Senior Android Architect",
+      "arbeitgeber": "Elbe Automotive SE",
+      "arbeitsort": {"ort": "Leipzig", "land": "Deutschland"},
+      "days_ago": 9,
+      "externeUrl": "https://elbe-automotive.example/jobs/senior-android-architect",
+      "beschreibung": "8+ years of Android experience, leading architecture for Android Automotive, Kotlin, AOSP.",
+      "arbeitszeit": "Vollzeit"
+    }
+  ],
+  "feed_b": [
+    {
+      "id": 5501,
+      "company": "Example Infotainment GmbH",
+      "title": "AOSP Framework Engineer",
+      "absolute_url": "https://boards.example-ats.example/example-infotainment/jobs/5501",
+      "location": {"name": "Munich, Germany"},
+      "days_ago": 3,
+      "content": "Work on Android framework services: AOSP, AIDL, HAL, JNI, C++, Java and Kotlin. 1+ years experience. English required. Applicants must be EU citizens or hold an unrestricted work permit."
+    },
+    {
+      "id": 5502,
+      "company": "Example Cloud BV",
+      "title": "Graduate Software Engineer",
+      "absolute_url": "https://boards.example-ats.example/example-cloud/jobs/5502",
+      "location": {"name": "Amsterdam, Netherlands (Hybrid)"},
+      "days_ago": 4,
+      "content": "Graduate programme for software engineers. Java or Python, Kubernetes, AWS. English working environment."
+    },
+    {
+      "id": 5503,
+      "company": "Example Automotive GmbH",
+      "title": "Junior Embedded Software Engineer",
+      "absolute_url": "https://boards.example-ats.example/example-automotive/jobs/5503",
+      "location": {"name": "Stuttgart, Germany"},
+      "days_ago": 6,
+      "content": "Embedded C++ for ECUs with AUTOSAR on Linux. Deutsch C1 required, English good."
+    },
+    {
+      "id": 5504,
+      "company": "Saxonia Data AG",
+      "title": "Junior Java Backend Developer (m/w/d)",
+      "absolute_url": "https://boards.example-ats.example/saxonia-data/jobs/5504",
+      "location": {"name": "Dresden, Germany"},
+      "days_ago": 5,
+      "content": "Join our backend team building REST services with Java, Spring Boot, JPA and MySQL."
+    }
+  ],
+  "feed_c": [
+    {
+      "url": "https://example-apps.example/careers/kotlin-developer",
+      "company": "Example Apps GmbH",
+      "title": "Kotlin Developer",
+      "city": "Berlin",
+      "country": "DE",
+      "remote": true,
+      "days_ago": 7,
+      "description": "Remote within Germany. Kotlin, Android, Jetpack Compose, Gradle. English team.",
+      "salary": "48000-56000 EUR",
+      "status": "open"
+    },
+    {
+      "url": "HTTP://WWW.careers.nordlicht-mobility.example/jobs/android-developer/?utm_source=newsletter&utm_medium=email",
+      "company": "Nordlicht Mobility GmbH",
+      "title": "Android Developer (m/w/d)",
+      "city": "Chemnitz",
+      "country": "DE",
+      "remote": false,
+      "days_ago": 2,
+      "description": "Duplicate of A-1001 reached through a tracking link.",
+      "salary": null,
+      "status": "open"
+    },
+    {
+      "url": "https://example-robotics.example/jobs/junior-cpp-engineer",
+      "company": "Example Robotics s.r.o.",
+      "title": "Junior C++ Engineer",
+      "city": "Prague",
+      "country": "CZ",
+      "remote": false,
+      "days_ago": 8,
+      "description": "Junior role: modern C++, Linux, Git. English.",
+      "salary": "1200000-1500000 CZK",
+      "status": "open"
+    },
+    {
+      "url": "https://example-retail.example/jobs/mobile-app-developer",
+      "company": "Example Retail GmbH",
+      "title": "Mobile App Developer",
+      "city": "Hamburg",
+      "country": "DE",
+      "remote": false,
+      "days_ago": 20,
+      "description": "Android and iOS apps. This position has been filled.",
+      "salary": null,
+      "status": "closed"
+    }
+  ]
+}
