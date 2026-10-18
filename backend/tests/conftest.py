@@ -165,7 +165,7 @@ class FakeSources:
         if host == "rest.arbeitsagentur.de":
             if request.headers.get("x-api-key") != "jobboerse-jobsuche":
                 return httpx.Response(403)
-            if path.endswith("/pc/v4/jobs"):
+            if path.endswith(("/pc/v4/jobs", "/pc/v6/jobs")):
                 return httpx.Response(200, json=_json.loads((FIXTURES / "ba_search.json").read_text()))
             if "/pc/v4/jobdetails/" in path:
                 refnr = _b64.b64decode(path.rsplit("/", 1)[1]).decode()

@@ -173,6 +173,9 @@ def failed_runs(c: Ctx) -> list[Finding]:
 
 
 SOURCE_HINTS = {
+    "forbidden": ("The source refused access (HTTP 403)", "Run `./jp exec api python -m jobpilot.ops probe-ba` "
+                  "(for Bundesagentur) to see what the source accepts, and check for a JobPilot update. If it stays "
+                  "refused, untick the source in Job Discovery."),
     "http_403": ("The source refused access", "Check whether the source changed its terms or blocks automated access; "
                  "disable it if so."),
     "http_404": ("A board or company name no longer exists", "Fix the company/board names in the search settings."),
@@ -255,6 +258,8 @@ def browser(c: Ctx) -> list[Finding]:
     since = c.now - timedelta(hours=24)
     rows = c.db.scalars(select(m.ErrorEvent).where(m.ErrorEvent.at >= since, m.ErrorEvent.component == "browser")
                         .order_by(m.ErrorEvent.at.desc())).all()
+    # a wrong or invented address is the link's problem, not the browser's
+    rows = [r for r in rows if "ERR_NAME_NOT_RESOLVED" not in (r.message or "")]
     if not rows:
         return []
     codes = Counter(r.code for r in rows)

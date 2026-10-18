@@ -150,3 +150,25 @@ def test_url_resolution(url, code, has_ref):
 def test_html_to_text_keeps_structure_and_drops_markup():
     out = html_to_text("<p>Hello&nbsp;<b>world</b></p><ul><li>One</li><li>Two</li></ul><style>x{}</style>")
     assert out == "Hello world\n\n- One\n- Two"
+
+
+def test_ba_falls_back_to_the_other_search_version_when_refused(fake_sources):
+    base = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
+    fake_sources.overrides[base] = [httpx.Response(403)] * 10  # the old version is refused
+    adapter = BAJobsucheAdapter()
+    jobs = adapter.fetch(SearchFilters(countries=["DE"], keywords=["Android", "Java"]), {"max_pages": 1})
+    assert len(jobs) == 2
+    v4 = [c for c in fake_sources.calls if "/pc/v4/jobs?" in c]
+    v6 = [c for c in fake_sources.calls if "/pc/v6/jobs?" in c]
+    assert len(v4) == 1 and len(v6) >= 2  # after the first refusal every search goes straight to v6
+
+
+def test_ba_reports_forbidden_when_every_version_is_refused(fake_sources):
+    from jobpilot.agents.discovery.http import SourceHTTPError
+
+    for v in ("v4", "v6"):
+        fake_sources.overrides[f"https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/{v}/jobs"] = \
+            [httpx.Response(403)] * 5
+    with pytest.raises(SourceHTTPError) as e:
+        BAJobsucheAdapter().fetch(SearchFilters(countries=["DE"], keywords=["Android"]), {"max_pages": 1})
+    assert e.value.code == "forbidden" and "also tried /pc/v4/jobs" in str(e.value)

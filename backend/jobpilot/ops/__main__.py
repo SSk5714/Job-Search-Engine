@@ -17,9 +17,30 @@ def main() -> int:
     r = sub.add_parser("restore", help="replace the database and documents with a backup")
     r.add_argument("name")
     r.add_argument("--yes", action="store_true", help="confirm: current data is replaced (a safety backup is made)")
+    sub.add_parser("probe-ba", help="check what the Bundesagentur job search answers from this machine")
     h = sub.add_parser("alive", help="exit 0 if a component's heartbeat is fresh (container healthchecks)")
     h.add_argument("component", choices=["scheduler", "monitor"])
     a = p.parse_args()
+    if a.cmd == "probe-ba":
+        import httpx
+
+        from jobpilot.agents.discovery.adapters.ba_jobsuche import BASE, HEADERS, SEARCH_PATHS
+        from jobpilot.config import get_settings
+
+        params = {"was": "Java", "wo": "Berlin", "size": 2, "page": 1, "angebotsart": 1}
+        agents = {"JobPilot (normal)": get_settings().http_user_agent, "plain httpx": None}
+        ok = False
+        for path in SEARCH_PATHS:
+            for label, ua in agents.items():
+                headers = dict(HEADERS) | ({"User-Agent": ua} if ua else {})
+                try:
+                    r = httpx.get(f"{BASE}{path}", params=params, headers=headers, timeout=20)
+                    n = len((r.json() or {}).get("stellenangebote") or []) if r.status_code == 200 else "-"
+                    print(f"{path:14} {label:18} HTTP {r.status_code}  jobs: {n}  {'' if r.status_code == 200 else r.text[:120]}")
+                    ok = ok or r.status_code == 200
+                except Exception as e:
+                    print(f"{path:14} {label:18} {type(e).__name__}: {e}"[:200])
+        return 0 if ok else 1
     if a.cmd == "alive":
         from jobpilot.db.heartbeat import age
         from jobpilot.db.session import SessionLocal

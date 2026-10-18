@@ -11,12 +11,14 @@ import re
 from datetime import date
 
 from jobpilot.agents.discovery.adapters.base import Adapter, relevant
-from jobpilot.agents.discovery.http import SourceClient
+from jobpilot.agents.discovery.http import SourceClient, SourceHTTPError
 from jobpilot.agents.discovery.text import html_to_text
 from jobpilot.schemas.agents import RawJob, SearchFilters
 
 BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service"
 HEADERS = {"X-API-Key": "jobboerse-jobsuche"}
+# Both search versions are documented by the community project; the service has moved between them.
+SEARCH_PATHS = ["/pc/v4/jobs", "/pc/v6/jobs"]
 DETAIL_URL = "https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
 URL_RE = re.compile(r"arbeitsagentur\.de/jobsuche/jobdetail/(?P<refnr>[\w-]+)", re.I)
 
@@ -45,6 +47,24 @@ class BAJobsucheAdapter(Adapter):
 
     def __init__(self):
         self.http = SourceClient(self.code, self.rate_limit_per_min)
+        self._paths = list(SEARCH_PATHS)
+
+    def _search(self, params: dict) -> dict:
+        """Search with the first endpoint version that answers; remember it for the rest of the run."""
+        last: SourceHTTPError | None = None
+        for i, path in enumerate(list(self._paths)):
+            try:
+                data = self.http.get(f"{BASE}{path}", params=params, headers=HEADERS).json()
+            except SourceHTTPError as e:
+                if e.code in ("forbidden", "http_error") and i < len(self._paths) - 1:
+                    last = e
+                    continue
+                if last is not None:
+                    raise SourceHTTPError(e.code, f"{e} (also tried {', '.join(self._paths[:i])})", e.status) from e
+                raise
+            self._paths = [path] + [p for p in self._paths if p != path]
+            return data
+        raise last or SourceHTTPError("exhausted", "no search endpoint answered")
 
     def _queries(self, filters: SearchFilters) -> list[str]:
         if filters.keywords:
@@ -97,7 +117,7 @@ class BAJobsucheAdapter(Adapter):
                             params |= {"wo": wo, "umkreis": int(options.get("radius_km", 50))}
                         if filters.max_age_days is not None:
                             params["veroeffentlichtseit"] = min(filters.max_age_days, 100)
-                        data = self.http.get(f"{BASE}/pc/v4/jobs", params=params, headers=HEADERS).json()
+                        data = self._search(params)
                         items = data.get("stellenangebote") or []
                         for it in items:
                             if it.get("refnr"):
