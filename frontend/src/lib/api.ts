@@ -175,6 +175,8 @@ export interface Filters {
   employment_types: string[];
   seniority: string[];
   max_age_days: number | null;
+  job_types?: string[];   // job | werkstudent | praktikum | abschlussarbeit; empty = all
+  companies?: string[];   // employers you want, e.g. BMW
 }
 
 export interface SearchConfig {
@@ -331,6 +333,7 @@ export interface MyJob {
   score: number | null; recommendation: string | null; why: string; matched: string[]; missing: string[];
   warnings: string[]; documents: Partial<Record<"cv" | "cover_letter", MyDoc>>;
   applied_on: string | null; outcome: string | null; next_follow_up: string | null;
+  kind: "job" | "werkstudent" | "praktikum" | "abschlussarbeit"; target_company: string | null;
 }
 
 export interface BackupT { name: string; kind: string; status: string; size_bytes: number | null; started_at: string;

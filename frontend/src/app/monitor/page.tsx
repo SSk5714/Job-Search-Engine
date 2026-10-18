@@ -5,6 +5,7 @@ import { api, type SearchConfig, type SearchRun, type Source } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import { ErrorBox, Loading, errorText, useLoad } from "@/components/ui";
 import { ScheduleCard } from "@/components/ScheduleCard";
+import { KINDS, SUGGESTED_COMPANIES } from "@/lib/places";
 
 const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 const SEARCH_COMPONENTS = ["discovery", "scheduler", "queue", "orchestrator"];
@@ -15,9 +16,15 @@ const COMPANY_SOURCES: Record<string, { key: string; hint: string }> = {
   lever: { key: "sites", hint: "Lever company names" },
   personio: { key: "companies", hint: "Personio company names (from company.jobs.personio.de)" },
 };
-const SHORT: Record<string, string> = { ba_jobsuche: "Bundesagentur", greenhouse: "Greenhouse", lever: "Lever", personio: "Personio" };
+const SHORT: Record<string, string> = { ba_jobsuche: "Bundesagentur", arbeitnow: "Arbeitnow", adzuna: "Adzuna",
+  greenhouse: "Greenhouse", lever: "Lever", personio: "Personio" };
+const NOTE: Record<string, string> = {
+  ba_jobsuche: "all employers in Germany (recommended)",
+  arbeitnow: "jobs in Germany, many straight from company career sites (recommended)",
+  adzuna: "collects jobs from many German job boards; needs a free key in .env",
+};
 const ERRORS: Record<string, string> = {
-  forbidden: "access refused", needs_configuration: "needs company names", http_error: "a company name was not found",
+  forbidden: "access refused", needs_configuration: "needs settings (company names or a key)", http_error: "a company name was not found",
   unexpected_format: "unknown answer format", timeout: "timed out", unreachable: "unreachable", rate_limited: "too many requests",
 };
 
@@ -36,7 +43,10 @@ function runText(r: SearchRun) {
 }
 
 function SearchSettings({ cfg, sources, onSaved }: { cfg: SearchConfig; sources: Source[]; onSaved: (c: SearchConfig) => void }) {
-  const automated = sources.filter((x) => x.implemented && (x.access_mode === "api" || x.access_mode === "feed"));
+  const ORDER = ["ba_jobsuche", "arbeitnow", "adzuna", "greenhouse", "lever", "personio"];
+  const rank = (c: string) => (ORDER.indexOf(c) + 1 || 99);
+  const automated = sources.filter((x) => x.implemented && (x.access_mode === "api" || x.access_mode === "feed"))
+    .sort((a, b) => rank(a.code) - rank(b.code));
   const opts = (cfg.source_options ?? {}) as Record<string, Record<string, unknown>>;
   const [codes, setCodes] = useState<string[]>(cfg.source_codes.length ? cfg.source_codes : ["ba_jobsuche"]);
   const [companies, setCompanies] = useState<Record<string, string>>(() => Object.fromEntries(
@@ -45,6 +55,19 @@ function SearchSettings({ cfg, sources, onSaved }: { cfg: SearchConfig; sources:
   const [cities, setCities] = useState(cfg.filters.cities.join(", "));
   const [radius, setRadius] = useState(String((cfg.source_options?.ba_jobsuche as { radius_km?: number })?.radius_km ?? 50));
   const [days, setDays] = useState(String(cfg.filters.max_age_days ?? 30));
+  const [kinds, setKinds] = useState<string[]>(cfg.filters.job_types ?? []);
+  const [targets, setTargets] = useState((cfg.filters.companies ?? []).join(", "));
+  const allKinds = kinds.length === 0;
+  const kindOn = (k: string) => allKinds || kinds.includes(k);
+  function toggleKind(k: string, on: boolean) {
+    const cur = allKinds ? KINDS.map((x) => x.code as string) : kinds;
+    const next = on ? [...cur, k] : cur.filter((x) => x !== k);
+    setKinds(next.length === KINDS.length ? [] : next);
+  }
+  function addCompany(c: string) {
+    const cur = list(targets);
+    if (!cur.some((x) => x.toLowerCase() === c.toLowerCase())) setTargets([...cur, c].join(", "));
+  }
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -52,13 +75,15 @@ function SearchSettings({ cfg, sources, onSaved }: { cfg: SearchConfig; sources:
     setErr(null); setMsg(null);
     try {
       if (!codes.length) { setErr("Tick at least one place to search."); return; }
+      if (!allKinds && !kinds.length) { setErr("Tick at least one kind of position."); return; }
       const missing = codes.filter((c) => COMPANY_SOURCES[c] && !list(companies[c] ?? "").length);
       if (missing.length) { setErr(`Add company names for ${missing.map((c) => SHORT[c] ?? c).join(", ")}, or untick it.`); return; }
       const source_options: Record<string, Record<string, unknown>> = { ...opts, ba_jobsuche: { ...(opts.ba_jobsuche ?? {}), radius_km: Number(radius) || 50 } };
       for (const [c, { key }] of Object.entries(COMPANY_SOURCES)) source_options[c] = { ...(opts[c] ?? {}), [key]: list(companies[c] ?? "") };
       const saved = await api.saveConfig({
         ...cfg, source_codes: codes,
-        filters: { ...cfg.filters, keywords: list(keywords), cities: list(cities), max_age_days: Number(days) || 30 },
+        filters: { ...cfg.filters, keywords: list(keywords), cities: list(cities), max_age_days: Number(days) || 30,
+          job_types: kinds, companies: list(targets) },
         source_options,
       });
       onSaved(saved); setMsg("Saved. The next search uses these settings.");
@@ -78,6 +103,27 @@ function SearchSettings({ cfg, sources, onSaved }: { cfg: SearchConfig; sources:
         <label>Only jobs posted in the last (days)
           <input type="number" min={1} max={100} value={days} onChange={(e) => setDays(e.target.value)} /></label>
       </div>
+      <h3 style={{ margin: "14px 0 6px", fontSize: 15 }}>Kind of position</h3>
+      <div className="row small">
+        {KINDS.map((k) => (
+          <label key={k.code} className="row" style={{ display: "flex", marginRight: 12 }}>
+            <input type="checkbox" style={{ width: "auto" }} checked={kindOn(k.code)}
+              onChange={(e) => toggleKind(k.code, e.target.checked)} /> {k.label}
+          </label>
+        ))}
+      </div>
+
+      <h3 style={{ margin: "14px 0 6px", fontSize: 15 }}>Companies you want (searched across all of Germany)</h3>
+      <input value={targets} placeholder="BMW, Mercedes-Benz, Bosch" onChange={(e) => setTargets(e.target.value)} />
+      <div className="small muted" style={{ marginTop: 4 }}>
+        Add:{" "}
+        {SUGGESTED_COMPANIES.filter((c) => !list(targets).some((x) => x.toLowerCase() === c.toLowerCase())).map((c) => (
+          <button key={c} type="button" className="btn small" style={{ margin: "2px 4px 2px 0" }} onClick={() => addCompany(c)}>+ {c}</button>
+        ))}
+        <div>Their jobs are shown even with a lower score, marked ★. Without a kind ticked above, the company search
+          looks for Werkstudent, Praktikum and thesis positions.</div>
+      </div>
+
       <h3 style={{ margin: "14px 0 6px", fontSize: 15 }}>Where to search</h3>
       <div className="list">
         {automated.map((src) => {
@@ -88,7 +134,7 @@ function SearchSettings({ cfg, sources, onSaved }: { cfg: SearchConfig; sources:
               <label className="row small" style={{ display: "flex" }}>
                 <input type="checkbox" style={{ width: "auto" }} checked={on}
                   onChange={(e) => setCodes(e.target.checked ? [...codes, src.code] : codes.filter((c) => c !== src.code))} />
-                <b>{src.name}</b>{src.code === "ba_jobsuche" && <span className="muted"> · all employers in Germany (recommended)</span>}
+                <b>{src.name}</b>{NOTE[src.code] && <span className="muted"> · {NOTE[src.code]}</span>}
                 {co && <span className="muted"> · only the companies you list</span>}
               </label>
               {co && on && (
@@ -105,8 +151,8 @@ function SearchSettings({ cfg, sources, onSaved }: { cfg: SearchConfig; sources:
       </div>
       <ErrorBox message={err} />
       <p className="small muted" style={{ marginTop: 8 }}>
-        LinkedIn and StepStone do not allow automatic searching; add a job from there by hand with “Add job from URL” on
-        the Jobs page.
+        Indeed, LinkedIn, StepStone and XING do not allow automatic searching. The Jobs page has one-click links that open
+        your search on those sites; add a job you like with “Add job from URL”.
       </p>
     </section>
   );

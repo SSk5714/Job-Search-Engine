@@ -62,7 +62,7 @@ def _config_out(c: m.SearchConfig, db: Session | None = None) -> dict:
 class ConfigIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     filters: SearchFilters = Field(default_factory=SearchFilters)
-    source_codes: list[str] = Field(default_factory=lambda: ["ba_jobsuche"])
+    source_codes: list[str] = Field(default_factory=lambda: ["ba_jobsuche", "arbeitnow"])
     source_options: dict[str, dict] = Field(default_factory=dict)
     cron: str | None = Field(default=None, max_length=64)
     allow_overlap: bool = False

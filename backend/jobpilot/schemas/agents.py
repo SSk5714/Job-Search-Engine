@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -15,6 +16,9 @@ class SearchFilters(BaseModel):
     employment_types: list[str] = Field(default_factory=list)
     seniority: list[str] = Field(default_factory=list)
     max_age_days: int | None = 30
+    # job | werkstudent | praktikum | abschlussarbeit; empty = every kind
+    job_types: list[Literal["job", "werkstudent", "praktikum", "abschlussarbeit"]] = Field(default_factory=list)
+    companies: list[str] = Field(default_factory=list, max_length=40)  # employers you want, e.g. BMW
 
 
 class DiscoveryInput(BaseModel):

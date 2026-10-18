@@ -25,7 +25,10 @@ at start-up.
 
 Under the hood:
 
-- Job sources: Bundesagentur für Arbeit, Greenhouse, Lever and Personio adapters, plus a mock board for development
+- Job sources: Bundesagentur für Arbeit, Arbeitnow, Adzuna (free key), Greenhouse, Lever and Personio, plus a mock board for development
+- Student positions and target companies: choose Jobs, Werkstudent, Praktikum or Abschlussarbeit, and list companies
+  (BMW, Mercedes-Benz, Bosch …); their openings are searched across Germany and marked ★
+- Indeed, LinkedIn, StepStone and XING: one-click links open your search there (they forbid automated access)
 - **Add job from URL**: API-backed links are fetched; LinkedIn, StepStone, Indeed and XING links are never fetched, so you paste the details
 - Claude-assisted matching (`claude-haiku-5-5` by default). Claude extracts skills and requirements with verbatim quotes, mapped to your verified facts; code computes the score and eligibility. Invented facts and quotes are discarded.
 - Per-run and daily AI budgets, token and cost records, and a visible fallback to rule-based scoring
@@ -193,7 +196,10 @@ wireframes, security model, acceptance-test plan) is in
 
 - The Bundesagentur für Arbeit API is community-documented, with no official terms; it may change without notice.
 - Greenhouse, Lever and Personio need the company identifiers you add. There is no cross-company search.
-- StepStone, Indeed, XING and LinkedIn only support manual URL import, because their terms restrict automated access.
+- StepStone, Indeed, XING, Glassdoor and LinkedIn are never searched or fetched automatically, because their terms forbid it:
+  the Jobs page opens your search on those sites, and you bring a job in with Add job from URL.
+- Company search on Bundesagentur uses the employer filter; a company that lists under another legal name may need
+  that name (e.g. "Bayerische Motoren Werke" is used for BMW automatically).
 - Re-scoring runs inside the request; with Claude on, large re-scores take a while (about 50 jobs per run by default).
 - `rules-v0` (the fallback) is keyword matching and misses synonyms and context.
 - Documents are English only. The template generator uses fixed sentence patterns: correct, but plainer than Claude's writing.

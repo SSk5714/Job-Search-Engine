@@ -12,6 +12,8 @@ import httpx
 from jobpilot.config import get_settings
 
 log = logging.getLogger("jobpilot.http")
+# httpx logs full request URLs at INFO; some sources take their key as a query parameter.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 _transport: httpx.BaseTransport | None = None
 _last_call: dict[str, float] = {}
 _lock = threading.Lock()

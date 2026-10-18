@@ -1,0 +1,13 @@
+{
+  "count": 2,
+  "results": [
+    {"id": "4400001", "title": "<strong>Java</strong> Entwickler (m/w/d)", "description": "Spring Boot und <strong>Java</strong> …",
+     "redirect_url": "https://www.adzuna.de/details/4400001", "company": {"display_name": "Daten GmbH"},
+     "location": {"display_name": "Chemnitz, Sachsen", "area": ["Deutschland", "Sachsen", "Chemnitz"]},
+     "created": "2026-10-16T08:00:00Z", "contract_time": "full_time", "salary_min": 55000, "salary_is_predicted": "1"},
+    {"id": "4400002", "title": "Werkstudent Softwareentwicklung", "description": "Werkstudent bei Mercedes-Benz …",
+     "redirect_url": "https://www.adzuna.de/details/4400002", "company": {"display_name": "Mercedes-Benz AG"},
+     "location": {"display_name": "Stuttgart, Baden-Württemberg", "area": ["Deutschland", "Baden-Württemberg", "Stuttgart"]},
+     "created": "2026-10-16T08:00:00Z"}
+  ]
+}

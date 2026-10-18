@@ -1,0 +1,21 @@
+{
+  "data": [
+    {"slug": "werkstudent-android-entwicklung-chemnitz-1001", "company_name": "Robert Bosch GmbH",
+     "title": "Werkstudent Android Entwicklung (w/m/div.)", "description": "<p>Du entwickelst Android-Apps mit <b>Kotlin</b>.</p>",
+     "remote": false, "url": "https://www.arbeitnow.com/jobs/companies/robert-bosch-gmbh/werkstudent-android-entwicklung-chemnitz-1001",
+     "tags": ["IT"], "job_types": ["Working student"], "location": "Chemnitz", "created_at": 1792540800},
+    {"slug": "java-backend-developer-berlin-1002", "company_name": "Shop Tech GmbH",
+     "title": "Java Backend Developer", "description": "<p>Spring Boot, Java, REST.</p>",
+     "remote": false, "url": "https://www.arbeitnow.com/jobs/companies/shop-tech/java-backend-developer-berlin-1002",
+     "tags": [], "job_types": ["Full Time"], "location": "Berlin", "created_at": 1792540800},
+    {"slug": "sales-manager-munich-1003", "company_name": "Sales GmbH",
+     "title": "Sales Manager", "description": "<p>Sell things.</p>",
+     "remote": false, "url": "https://www.arbeitnow.com/jobs/companies/sales/sales-manager-munich-1003",
+     "tags": [], "job_types": [], "location": "Munich", "created_at": 1792540800},
+    {"slug": "praktikum-controlling-1004", "company_name": "Bayerische Motoren Werke Aktiengesellschaft",
+     "title": "Praktikum Controlling", "description": "<p>Zahlen.</p>",
+     "remote": false, "url": "https://www.arbeitnow.com/jobs/companies/bmw/praktikum-controlling-1004",
+     "tags": [], "job_types": ["Internship"], "location": "München", "created_at": 1792540800}
+  ],
+  "links": {"next": null}
+}

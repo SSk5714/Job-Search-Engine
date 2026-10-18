@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from jobpilot.agents.discovery.adapters.base import company_matches, job_type
 from jobpilot.api.deps import current_user
 from jobpilot.api.routes_jobs import latest_evaluations
 from jobpilot.config import get_settings
@@ -49,9 +50,19 @@ def documents_latest(db: Session, app_id) -> dict[str, m.Document]:
     return latest
 
 
-def _card(db: Session, app: m.Application, ev: m.JobMatchEvaluation | None) -> dict:
+def _targets(db: Session) -> list[str]:
+    """The companies you listed in any search ("BMW", "Mercedes-Benz" …)."""
+    out: list[str] = []
+    for f in db.scalars(select(m.SearchConfig.filters)).all():
+        out += [c for c in (f or {}).get("companies", []) if isinstance(c, str) and c.strip()]
+    return list(dict.fromkeys(out))
+
+
+def _card(db: Session, app: m.Application, ev: m.JobMatchEvaluation | None, targets: list[str] | None = None) -> dict:
     j = app.job
+    targets = _targets(db) if targets is None else targets
     return {
+        "kind": job_type(j.title), "target_company": company_matches(j.company, targets) if targets else None,
         "application_id": app.id, "job_id": j.id, "state": app.state,
         "title": j.title, "company": j.company, "city": j.city, "country": j.country, "work_mode": j.work_mode,
         "posted": j.published_at, "found": j.retrieved_at, "url": j.url, "source": j.source.name,
@@ -74,9 +85,12 @@ def my_jobs(include_weak: bool = False, db: Session = Depends(get_db)):
                              m.Job.duplicate_of_id.is_(None))).all()
     evs = latest_evaluations(db, [a.job_id for a in apps])
     wanted = {"apply", "review"} | ({"low_priority"} if include_weak else set())
-    cards = [_card(db, a, evs.get(a.job_id)) for a in apps
+    targets = _targets(db)
+    cards = [_card(db, a, evs.get(a.job_id), targets) for a in apps
              if a.job.source.access_mode != "mock" or get_settings().test_jobs_enabled]
-    cards = [c for c in cards if c["recommendation"] in wanted]
+    # a company you asked for is shown even when the score is low (never when you are not eligible)
+    cards = [c for c in cards if c["recommendation"] in wanted
+             or (c["target_company"] and c["recommendation"] == "low_priority")]
     cards.sort(key=lambda c: (-(c["score"] or 0), str(c["found"])))
     hidden = len(apps) - len(cards)
     return {"jobs": cards, "hidden_weak": hidden}
@@ -149,7 +163,8 @@ def history(db: Session = Depends(get_db)):
     apps = db.scalars(select(m.Application).where(m.Application.state.in_(APPLIED_STATES))
                       .order_by(m.Application.submitted_at.desc().nulls_last())).all()
     evs = latest_evaluations(db, [a.job_id for a in apps])
-    return [_card(db, a, evs.get(a.job_id)) for a in apps]
+    targets = _targets(db)
+    return [_card(db, a, evs.get(a.job_id), targets) for a in apps]
 
 
 class OutcomeIn(BaseModel):

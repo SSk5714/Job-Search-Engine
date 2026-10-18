@@ -7,6 +7,8 @@ run live), Manual, Mock, Planned.
 
 from urllib.parse import urlsplit
 
+from jobpilot.agents.discovery.adapters.adzuna import AdzunaAdapter
+from jobpilot.agents.discovery.adapters.arbeitnow import ArbeitnowAdapter
 from jobpilot.agents.discovery.adapters.ba_jobsuche import BAJobsucheAdapter
 from jobpilot.agents.discovery.adapters.base import Adapter, AdapterConfigError, AdapterNotImplemented
 from jobpilot.agents.discovery.adapters.greenhouse import GreenhouseAdapter
@@ -22,6 +24,11 @@ SOURCES: dict[str, tuple[str, str, type[Adapter] | None, str]] = {
                     "Used in tests to prove one broken source does not stop a run."),
     "ba_jobsuche": ("Bundesagentur für Arbeit Jobsuche", "api", BAJobsucheAdapter,
                     "Germany only. Community-documented REST API (bundesAPI); no official terms published."),
+    "arbeitnow": ("Arbeitnow", "api", ArbeitnowAdapter,
+                  "Free public API of jobs in Germany, many straight from company career sites. No key needed."),
+    "adzuna": ("Adzuna", "api", AdzunaAdapter,
+               "Official search API that collects jobs from many German job boards and company sites. Needs a free "
+               "key in .env (JOBPILOT_ADZUNA_APP_ID, JOBPILOT_ADZUNA_APP_KEY)."),
     "greenhouse": ("Company careers on Greenhouse", "api", GreenhouseAdapter,
                    "Public Job Board API. Add board tokens per search, e.g. 'gitlab'."),
     "lever": ("Company careers on Lever", "api", LeverAdapter,
@@ -31,7 +38,9 @@ SOURCES: dict[str, tuple[str, str, type[Adapter] | None, str]] = {
     "manual": ("Manual import (any site)", "manual", None, "Paste a URL and the job details yourself."),
     "germantechjobs": ("GermanTechJobs", "manual", None, "Manual URL import until a feed or permission is confirmed."),
     "stepstone": ("StepStone", "manual", None, "Terms restrict automated scraping: manual URL import only."),
-    "indeed": ("Indeed", "manual", None, "Terms restrict automated scraping: manual URL import only."),
+    "indeed": ("Indeed", "manual", None, "No public search API and terms forbid automated access: use the search "
+               "links on the Jobs page and Add job from URL."),
+    "glassdoor": ("Glassdoor", "manual", None, "Terms forbid automated access: manual URL import only."),
     "xing": ("XING", "manual", None, "Terms restrict automated scraping: manual URL import only."),
     "linkedin": ("LinkedIn", "manual", None, "No scraping or auto-apply: manual URL import and manual apply only."),
 }
@@ -40,7 +49,7 @@ SOURCES: dict[str, tuple[str, str, type[Adapter] | None, str]] = {
 MANUAL_DOMAINS = {
     "linkedin.com": "linkedin", "stepstone.de": "stepstone", "stepstone.at": "stepstone",
     "indeed.com": "indeed", "indeed.de": "indeed", "de.indeed.com": "indeed", "xing.com": "xing",
-    "germantechjobs.de": "germantechjobs",
+    "germantechjobs.de": "germantechjobs", "glassdoor.de": "glassdoor", "glassdoor.com": "glassdoor",
 }
 URL_ADAPTERS: list[type[Adapter]] = [BAJobsucheAdapter, GreenhouseAdapter, LeverAdapter, PersonioAdapter]
 

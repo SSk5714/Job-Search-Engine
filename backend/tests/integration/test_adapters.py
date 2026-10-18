@@ -166,7 +166,7 @@ def test_ba_falls_back_to_the_other_search_version_when_refused(fake_sources):
 def test_ba_reports_forbidden_when_every_version_is_refused(fake_sources):
     from jobpilot.agents.discovery.http import SourceHTTPError
 
-    for v in ("v4", "v6"):
+    for v in ("v4", "v6", "v4/app"):
         fake_sources.overrides[f"https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/{v}/jobs"] = \
             [httpx.Response(403)] * 5
     with pytest.raises(SourceHTTPError) as e:
@@ -177,7 +177,7 @@ def test_ba_reports_forbidden_when_every_version_is_refused(fake_sources):
 def test_ba_unknown_answer_format_is_an_error_not_zero_jobs(fake_sources):
     from jobpilot.agents.discovery.http import SourceHTTPError
 
-    for v in ("v4", "v6"):
+    for v in ("v4", "v6", "v4/app"):
         fake_sources.overrides[f"https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/{v}/jobs"] = \
             [httpx.Response(200, json={"results": []})] * 5
     with pytest.raises(SourceHTTPError) as e:
@@ -196,3 +196,120 @@ def test_ba_empty_result_is_zero_jobs(fake_sources):
     base = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
     fake_sources.overrides[base] = [httpx.Response(200, json={"maxErgebnisse": 0})] * 10
     assert BAJobsucheAdapter().fetch(SearchFilters(countries=["DE"], keywords=["Android"]), {"max_pages": 1}) == []
+
+
+# --- searching properly: Bundesagentur v6 answers, distance, details, kinds of position, companies ---
+
+BA = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc"
+V6_ANSWER = {"stellenangebote": [
+    {"referenznummer": "10001-2000000001-S", "titel": "Softwareentwickler Java (m/w/d)",
+     "arbeitsorte": [{"adresse": {"ort": "Zwickau", "plz": "08056", "region": "Sachsen"}}],
+     "firma": "Auto Werk Sachsen GmbH", "aktuelleVeroeffentlichungsdatum": "2026-10-16"}], "maxErgebnisse": 1}
+
+
+def test_ba_reads_the_v6_answer_format(fake_sources):
+    fake_sources.overrides[f"{BA}/v4/jobs"] = [httpx.Response(403)] * 10
+    fake_sources.overrides[f"{BA}/v6/jobs"] = [httpx.Response(200, json=V6_ANSWER)] * 10
+    jobs = BAJobsucheAdapter().fetch(SearchFilters(keywords=["Java"], cities=["Chemnitz"], max_age_days=None),
+                                     {"max_pages": 1})
+    assert len(jobs) == 1
+    j = jobs[0]
+    assert (j.title, j.company, j.city, j.external_id) == (
+        "Softwareentwickler Java (m/w/d)", "Auto Werk Sachsen GmbH", "Zwickau", "ba:10001-2000000001-S")
+
+
+def test_ba_keeps_jobs_in_nearby_towns(fake_sources):
+    """Zwickau is inside the 50 km around Chemnitz; the API decided that, the text of the city must not undo it."""
+    fake_sources.overrides[f"{BA}/v4/jobs"] = [httpx.Response(200, json=V6_ANSWER)] * 10
+    jobs = BAJobsucheAdapter().fetch(SearchFilters(keywords=["Java"], cities=["Chemnitz"], max_age_days=None),
+                                     {"max_pages": 1})
+    assert [j.city for j in jobs] == ["Zwickau"]
+
+
+def test_ba_refused_details_keep_the_job(fake_sources):
+    for v in ("v4", "v3"):
+        fake_sources.overrides[f"{BA}/{v}/jobdetails"] = [httpx.Response(403)] * 10
+    jobs = BAJobsucheAdapter().fetch(SearchFilters(keywords=["Android"], max_age_days=None), {"max_pages": 1})
+    assert len(jobs) == 2 and all(j.description_text for j in jobs)
+    assert sum("/jobdetails/" in c for c in fake_sources.calls) == 2  # each version asked once, then skipped
+
+
+def test_ba_searches_each_kind_of_position(fake_sources):
+    BAJobsucheAdapter().fetch(SearchFilters(keywords=["Java"], job_types=["werkstudent", "praktikum", "job"],
+                                            max_age_days=None), {"max_pages": 1})
+    searches = [httpx.URL(c).params for c in fake_sources.calls if "/pc/v4/jobs?" in c]
+    got = {(p["was"], p.get("angebotsart")) for p in searches}
+    assert got == {("Werkstudent Java", None), ("Java", "34"), ("Java", "1")}
+
+
+def test_ba_company_search_keeps_only_that_employer(fake_sources):
+    answer = {"stellenangebote": [
+        {"refnr": "10001-3000000001-S", "titel": "Werkstudent IT", "arbeitgeber": "Bayerische Motoren Werke Aktiengesellschaft",
+         "arbeitsort": {"ort": "Leipzig"}, "aktuelleVeroeffentlichungsdatum": "2026-10-16"},
+        {"refnr": "10001-3000000002-S", "titel": "Werkstudent Einkauf", "arbeitgeber": "Andere Firma GmbH",
+         "arbeitsort": {"ort": "Leipzig"}, "aktuelleVeroeffentlichungsdatum": "2026-10-16"}], "maxErgebnisse": 2}
+    fake_sources.overrides[f"{BA}/v4/jobs?was=Werkstudent&page"] = [httpx.Response(200, json=answer)] * 3
+    jobs = BAJobsucheAdapter().fetch(SearchFilters(keywords=["Android"], companies=["BMW"], job_types=["werkstudent"],
+                                                   max_age_days=None), {"max_pages": 1})
+    company_calls = [httpx.URL(c).params for c in fake_sources.calls if "arbeitgeber=" in c]
+    assert company_calls and company_calls[0]["arbeitgeber"] == "Bayerische Motoren Werke"
+    assert [j.company for j in jobs if j.title == "Werkstudent IT"] == ["Bayerische Motoren Werke Aktiengesellschaft"]
+    assert not any(j.company == "Andere Firma GmbH" for j in jobs)
+
+
+def test_company_names_and_kinds_of_position():
+    from jobpilot.agents.discovery.adapters.base import company_matches, job_type
+
+    assert company_matches("Bayerische Motoren Werke AG", ["BMW"]) == "BMW"
+    assert company_matches("BMW Group", ["BMW"]) == "BMW"
+    assert company_matches("Mercedes-Benz AG", ["Mercedes-Benz"]) == "Mercedes-Benz"
+    assert company_matches("Robert Bosch GmbH", ["Bosch"]) == "Bosch"
+    assert company_matches("BMWK Bundesministerium", ["BMW"]) is None
+    assert company_matches("Porsche Leipzig GmbH", ["Siemens", "Porsche"]) == "Porsche"
+    assert job_type("Werkstudent (w/m/d) Softwareentwicklung") == "werkstudent"
+    assert job_type("Pflichtpraktikum Embedded") == "praktikum"
+    assert job_type("Masterarbeit: Android Security") == "abschlussarbeit"
+    assert job_type("Internship Software Engineering") == "praktikum"
+    assert job_type("Java Entwickler") == "job"
+
+
+def test_city_filter_applies_with_keywords_too():
+    from jobpilot.agents.discovery.adapters.base import relevant
+    from jobpilot.schemas.agents import RawJob
+
+    job = RawJob(url="https://x.de/1", company="A", title="Java Developer", city="Munich", country="DE")
+    assert not relevant(job, SearchFilters(keywords=["Java"], cities=["Berlin"], max_age_days=None))
+    assert relevant(job, SearchFilters(keywords=["Java"], cities=["Munich"], max_age_days=None))
+
+
+def test_arbeitnow_filters_words_kinds_and_companies(fake_sources):
+    from jobpilot.agents.discovery.adapters.arbeitnow import ArbeitnowAdapter
+
+    jobs = ArbeitnowAdapter().fetch(SearchFilters(keywords=["Android", "Java"], max_age_days=None), {})
+    assert {j.title for j in jobs} == {"Werkstudent Android Entwicklung (w/m/div.)", "Java Backend Developer"}
+    students = ArbeitnowAdapter().fetch(SearchFilters(keywords=["Android"], job_types=["werkstudent", "praktikum"],
+                                                      companies=["BMW"], max_age_days=None), {})
+    # the Bosch student job matches the words; the BMW internship is in by company, whatever the subject
+    assert {j.company for j in students} == {"Robert Bosch GmbH", "Bayerische Motoren Werke Aktiengesellschaft"}
+    assert all("<" not in j.description_text for j in jobs)
+
+
+def test_adzuna_needs_a_key_and_keeps_it_out_of_errors(fake_sources, monkeypatch):
+    from jobpilot.agents.discovery.adapters.adzuna import AdzunaAdapter
+    from jobpilot.agents.discovery.adapters.base import AdapterConfigError
+    from jobpilot.config import get_settings
+
+    with pytest.raises(AdapterConfigError):
+        AdzunaAdapter().fetch(SearchFilters(keywords=["Java"]), {})
+    monkeypatch.setattr(get_settings(), "adzuna_app_id", "id1")
+    monkeypatch.setattr(get_settings(), "adzuna_app_key", "secret-key-123")
+    jobs = AdzunaAdapter().fetch(SearchFilters(keywords=["Java"], cities=["Chemnitz"], max_age_days=None), {})
+    assert [(j.title, j.city, j.salary_min) for j in jobs] == [("Java Entwickler (m/w/d)", "Chemnitz", None)]
+    mb = AdzunaAdapter().fetch(SearchFilters(keywords=["Java"], companies=["Mercedes-Benz"], job_types=["werkstudent"],
+                                             max_age_days=None), {})
+    assert [j.company for j in mb] == ["Mercedes-Benz AG"]
+    fake_sources.overrides["https://api.adzuna.com"] = [httpx.Response(500)] * 5
+    from jobpilot.agents.discovery.http import SourceHTTPError
+    with pytest.raises(SourceHTTPError) as e:
+        AdzunaAdapter().fetch(SearchFilters(keywords=["Java"], max_age_days=None), {})
+    assert "secret-key-123" not in str(e.value)

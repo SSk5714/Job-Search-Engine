@@ -34,7 +34,8 @@ def main() -> int:
     if a.cmd == "probe-ba":
         import httpx
 
-        from jobpilot.agents.discovery.adapters.ba_jobsuche import BASE, HEADERS, SEARCH_PATHS
+        from jobpilot.agents.discovery.adapters.ba_jobsuche import BASE, HEADERS, SEARCH_PATHS, BAJobsucheAdapter
+        from jobpilot.schemas.agents import SearchFilters
         from jobpilot.config import get_settings
 
         params = {"was": "Java", "wo": "Berlin", "size": 2, "page": 1, "angebotsart": 1}
@@ -47,12 +48,22 @@ def main() -> int:
                     r = httpx.get(f"{BASE}{path}", params=params, headers=headers, timeout=20)
                     body = r.json() if r.status_code == 200 else {}
                     n = len(body.get("stellenangebote") or []) if isinstance(body, dict) else "-"
+                    first = (body.get("stellenangebote") or [None])[0] if isinstance(body, dict) else None
                     extra = (f"total: {body.get('maxErgebnisse')}  keys: {', '.join(sorted(body)[:8])}"
+                             + (f"  job fields: {', '.join(sorted(first)[:12])}" if isinstance(first, dict) else "")
                              if isinstance(body, dict) and body else r.text[:120])
                     print(f"{path:14} {label:18} HTTP {r.status_code}  jobs: {n}  {extra}")
                     ok = ok or r.status_code == 200
                 except Exception as e:
                     print(f"{path:14} {label:18} {type(e).__name__}: {e}"[:200])
+        try:  # the real search, end to end, as a scheduled run would do it
+            jobs = BAJobsucheAdapter().fetch(SearchFilters(keywords=["Java"], cities=["Berlin"]),
+                                             {"max_pages": 1, "max_details": 2})
+            print(f"full search (Java, Berlin): {len(jobs)} jobs" + (f", e.g. {jobs[0].title} at {jobs[0].company}"
+                                                                    if jobs else ""))
+        except Exception as e:
+            print(f"full search failed: {type(e).__name__}: {e}"[:300])
+            ok = False
         return 0 if ok else 1
     if a.cmd == "alive":
         from jobpilot.db.heartbeat import age

@@ -39,7 +39,7 @@ def bootstrap(db: Session) -> None:
             name="Germany — all tracks",
             filters={"countries": ["DE"], "cities": [], "keywords": [], "tracks": ["A", "B", "C", "D"],
                      "work_modes": [], "employment_types": [], "seniority": [], "max_age_days": 30},
-            source_codes=["mock"] if settings.test_jobs_enabled else ["ba_jobsuche"],
+            source_codes=["mock"] if settings.test_jobs_enabled else ["ba_jobsuche", "arbeitnow"],
         ))
     db.commit()
 

@@ -172,6 +172,14 @@ class FakeSources:
                 if refnr in self.ba_detail_ok:
                     return httpx.Response(200, json=_json.loads((FIXTURES / "ba_detail.json").read_text()))
                 return httpx.Response(404)
+        if host == "www.arbeitnow.com" and path == "/api/job-board-api":
+            if request.url.params.get("page", "1") != "1":
+                return httpx.Response(200, json={"data": [], "links": {"next": None}})
+            return httpx.Response(200, json=_json.loads((FIXTURES / "arbeitnow.json").read_text()))
+        if host == "api.adzuna.com" and path.startswith("/v1/api/jobs/de/search/"):
+            if not request.url.params.get("app_key"):
+                return httpx.Response(401)
+            return httpx.Response(200, json=_json.loads((FIXTURES / "adzuna.json").read_text()))
         if host == "boards-api.greenhouse.io":
             parts = path.strip("/").split("/")  # v1 boards {board} jobs [id]
             data = _json.loads((FIXTURES / "greenhouse_jobs.json").read_text())

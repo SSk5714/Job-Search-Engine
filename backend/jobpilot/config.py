@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # Outbound HTTP to job sources
     http_user_agent: str = "JobPilotEurope/0.2 (personal job search; contact via repository)"
     http_timeout_s: float = 30.0
+    # Adzuna job search API (free key from developer.adzuna.com); the key stays on the server
+    adzuna_app_id: str | None = None
+    adzuna_app_key: str | None = None
 
     # Workflow
     availability_recheck_hours: int = 24

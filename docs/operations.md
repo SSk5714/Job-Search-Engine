@@ -123,6 +123,19 @@ suite (`test_restore_drill_brings_back_identical_data`) and in CI against the re
   `JOBPILOT_BACKUP_KEEP`.
 - **Emails link to localhost**: set `JOBPILOT_PUBLIC_BASE_URL`.
 
+## Job sources
+
+| Source | Setup | What it covers |
+| --- | --- | --- |
+| Bundesagentur für Arbeit | none | All employers in Germany; searched with your keywords, cities and distance |
+| Arbeitnow | none | Jobs in Germany, many straight from company career sites |
+| Adzuna | free key: `JOBPILOT_ADZUNA_APP_ID`, `JOBPILOT_ADZUNA_APP_KEY` in `.env`, then `./jp up -d` | Jobs collected from many German job boards |
+| Greenhouse, Lever, Personio | company names on Search monitor | Only the companies you list |
+| Indeed, LinkedIn, StepStone, XING, Glassdoor | none (links only) | Never searched automatically: the Jobs page opens your search there |
+
+If Bundesagentur finds nothing, run `./jp exec api python -m jobpilot.ops probe-ba`: it shows what each search
+version answers and runs one full search (Java, Berlin).
+
 ## Real jobs only
 
 The Mock job board (invented companies with `.example` addresses) is off in production and hidden from Job
