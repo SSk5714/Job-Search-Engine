@@ -77,9 +77,21 @@ def _browser_failed(db: Session, app: m.Application, url: str, exc: Exception):
         side.add(m.ErrorEvent(component="browser", severity="warning", code=type(exc).__name__[:64],
                               message=str(exc)[:1000], context={"application_id": str(app.id), "url": url}))
         side.commit()
-    raise DomainError("browser_failed", "The browser could not load or read the application page "
-                      f"({type(exc).__name__}). Nothing was changed; try again, or apply on the site yourself.",
-                      status_code=502)
+    text = str(exc)
+    if "ERR_NAME_NOT_RESOLVED" in text:
+        why = "That web address does not exist (the domain name could not be found). Check the link"
+    elif "ERR_CONNECTION_REFUSED" in text or "ERR_CONNECTION_RESET" in text:
+        why = "The site refused the connection. It may be down; try again later"
+    elif "ERR_INTERNET_DISCONNECTED" in text or "ERR_NETWORK" in text:
+        why = "There is no internet connection from the app. Check your network"
+    elif "Timeout" in type(exc).__name__ or "Timeout" in text:
+        why = "The page took too long to load. Try again"
+    elif "ERR_CERT" in text or "SSL" in text:
+        why = "The site's security certificate is not valid"
+    else:
+        why = f"The browser could not load or read the page ({type(exc).__name__})"
+    raise DomainError("browser_failed", f"{why}. Nothing was changed; you can also apply on the site yourself.",
+                      {"detail": text[:300]}, status_code=502)
 
 
 def prepare(db: Session, app_id: uuid.UUID, apply_url: str | None = None) -> m.Application:
@@ -92,6 +104,11 @@ def prepare(db: Session, app_id: uuid.UUID, apply_url: str | None = None) -> m.A
     if not re.match(r"^https?://", url):
         raise DomainError("validation_error", "The application link must start with http:// or https://",
                           status_code=422)
+    host = (urlsplit(url).hostname or "").lower()
+    if host.endswith((".example", ".invalid", ".test")) or host in ("example.com", "example.org"):
+        raise DomainError("test_job", "This is a test job from the Mock job board: its address is invented and "
+                          "cannot be opened. Turn off the Mock job board in Job Discovery and search a real "
+                          "source (e.g. Bundesagentur für Arbeit) to apply for real.", status_code=422)
 
     if app.job.source.access_mode in ("api", "feed") and recheck_availability(db, app.job) == "closed":
         transitions.apply(db, app.id, State.EXPIRED, Actor.ORCHESTRATOR, "listing closed on recheck")

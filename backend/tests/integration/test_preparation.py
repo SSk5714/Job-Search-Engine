@@ -193,3 +193,22 @@ def test_preparation_requires_verified_documents(api, clean_portal):
     job = approved_job(api)
     r = api.post(f"/applications/{job['application']['id']}/prepare", {"apply_url": clean_portal.url("standard")})
     assert r.status_code == 409 and r.json()["error"]["code"] == "invalid_state"
+
+
+def test_test_job_addresses_get_a_clear_message(api):
+    app_id = documents_ready_app(api)
+    r = api.post(f"/applications/{app_id}/prepare", {"apply_url": "https://boards.example-ats.example/x/jobs/1"})
+    assert r.status_code == 422 and r.json()["error"]["code"] == "test_job"
+    assert "Mock job board" in r.json()["error"]["message"]
+
+
+def test_unknown_domain_says_the_address_does_not_exist(api, monkeypatch):
+    from jobpilot.agents.preparation import browser
+
+    def fail(*a, **k):
+        raise browser.PWError("net::ERR_NAME_NOT_RESOLVED at https://jobs.nonexistent-company-xyz.de/apply")
+
+    monkeypatch.setattr(browser, "inspect_form", fail)
+    app_id = documents_ready_app(api)
+    r = api.post(f"/applications/{app_id}/prepare", {"apply_url": "https://jobs.nonexistent-company-xyz.de/apply"})
+    assert r.status_code == 502 and "does not exist" in r.json()["error"]["message"]
