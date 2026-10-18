@@ -1,0 +1,28 @@
+# Optional: keep your data in folders you choose and reach PostgreSQL/Redis from your own tools.
+#   cp infra/docker-compose.local.example.yml infra/docker-compose.local.yml
+# ./jp picks up infra/docker-compose.local.yml automatically (it is not committed to git).
+# Data lives in $JOBPILOT_DATA_DIR (default ~/jobpilot-data); create it first, see docs/operations.md.
+
+services:
+  postgres:
+    ports: ["127.0.0.1:5433:5432"]   # e.g. DBeaver/pgAdmin/psql: localhost:5433, user jobpilot
+    volumes: !override
+      - ${JOBPILOT_DATA_DIR:-${HOME}/jobpilot-data}/postgres:/var/lib/postgresql/data
+
+  redis:
+    ports: ["127.0.0.1:6380:6379"]   # redis-cli -p 6380 (task queue only, no lasting data)
+
+  api:
+    volumes: !override
+      - ${JOBPILOT_DATA_DIR:-${HOME}/jobpilot-data}/documents:/app/storage/documents
+      - ${JOBPILOT_DATA_DIR:-${HOME}/jobpilot-data}/backups:/app/storage/backups
+
+  worker:
+    volumes: !override
+      - ${JOBPILOT_DATA_DIR:-${HOME}/jobpilot-data}/documents:/app/storage/documents
+      - ${JOBPILOT_DATA_DIR:-${HOME}/jobpilot-data}/backups:/app/storage/backups
+
+  monitor:
+    volumes: !override
+      - ${JOBPILOT_DATA_DIR:-${HOME}/jobpilot-data}/documents:/app/storage/documents:ro
+      - ${JOBPILOT_DATA_DIR:-${HOME}/jobpilot-data}/monitor:/app/storage/monitor

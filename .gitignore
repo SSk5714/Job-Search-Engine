@@ -10,3 +10,4 @@ frontend/next-env.d.ts
 *.tsbuildinfo
 storage/
 *.rdb
+infra/docker-compose.local.yml

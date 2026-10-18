@@ -13,6 +13,26 @@ Without Docker, run the same `python -m ...` commands in `backend/` with your en
 - Logs: `./jp logs --since 1h api worker beat monitor`. The monitor logs one
   JSON line per cycle (`"event": "monitor_cycle"`) and per new alert (`"alert_opened"`).
 
+## Where your data lives, and keeping it in your own folders
+
+By default the data is in Docker volumes on your own machine (`docker volume ls | grep infra_`). To keep it in
+ordinary folders you choose instead, and to reach PostgreSQL and Redis from your own tools:
+
+```bash
+mkdir -p ~/jobpilot-data/{postgres,documents,backups,monitor}
+sudo chown -R 10001:10001 ~/jobpilot-data/documents ~/jobpilot-data/backups ~/jobpilot-data/monitor  # the app's user
+cp infra/docker-compose.local.example.yml infra/docker-compose.local.yml   # ./jp uses it automatically
+./jp up -d
+```
+
+- PostgreSQL: `localhost:5433`, database and user `jobpilot`, password = `POSTGRES_PASSWORD` in `.env`
+  (DBeaver, pgAdmin, or `./jp exec postgres psql -U jobpilot jobpilot`).
+- Redis: `localhost:6380` (`./jp exec redis redis-cli`). It only holds the task queue; nothing to keep.
+- On Windows with WSL the folders are visible in Explorer at `\\wsl$\<distro>\home\<you>\jobpilot-data`.
+- Switching moves the app to new, empty folders. To bring existing data along, make a backup first and restore it
+  afterwards (see Restore below; copy the backup folder from the old `infra_backups` volume into
+  `~/jobpilot-data/backups`).
+
 ## Backups
 
 What a backup contains: the whole database (`pg_dump` custom format) and every generated document and evidence

@@ -3,4 +3,5 @@
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FILES=(-f "$DIR/infra/docker-compose.yml")
 [ -n "${JOBPILOT_DOMAIN:-}" ] || grep -q '^JOBPILOT_DOMAIN=.' "$DIR/.env" 2>/dev/null && FILES+=(-f "$DIR/infra/docker-compose.prod.yml")
+[ -f "$DIR/infra/docker-compose.local.yml" ] && FILES+=(-f "$DIR/infra/docker-compose.local.yml")
 exec docker compose "${FILES[@]}" --env-file "$DIR/.env" "$@"
