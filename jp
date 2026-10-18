@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Shortcut for docker compose with the right files, from any folder:  ./jp ps | ./jp logs -f api | ./jp stop
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FILES=(-f "$DIR/infra/docker-compose.yml")
+[ -n "${JOBPILOT_DOMAIN:-}" ] || grep -q '^JOBPILOT_DOMAIN=.' "$DIR/.env" 2>/dev/null && FILES+=(-f "$DIR/infra/docker-compose.prod.yml")
+exec docker compose "${FILES[@]}" --env-file "$DIR/.env" "$@"

@@ -53,7 +53,7 @@ and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 
 ```bash
 cp .env.example .env        # set JOBPILOT_SECRET_KEY, JOBPILOT_ADMIN_PASSWORD (12+), POSTGRES_PASSWORD
-docker compose -f infra/docker-compose.yml --env-file .env up -d --build
+./jp up -d --build
 ```
 
 Open http://localhost:3000 and sign in with the admin user from `.env`, then change the password in

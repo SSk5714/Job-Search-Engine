@@ -41,21 +41,21 @@ Optional: `JOBPILOT_ANTHROPIC_API_KEY` (Claude matching and writing), `JOBPILOT_
 Laptop (localhost only):
 
 ```bash
-docker compose -f infra/docker-compose.yml --env-file .env up -d --build
+./jp up -d --build
 ```
 
 Server with HTTPS:
 
 ```bash
-docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml --env-file .env up -d --build
+./jp up -d --build
 ```
 
 The first build takes 5–10 minutes (Chromium and its system libraries). Migrations run automatically when
 the API starts. Check:
 
 ```bash
-docker compose -f infra/docker-compose.yml ps        # all services "healthy" or "running"
-docker compose -f infra/docker-compose.yml logs -f api
+./jp ps        # all services "healthy" or "running"
+./jp logs -f api
 ```
 
 Open the site, sign in with the admin user, and go to **Settings & Health**: database, task queue, scheduler and
@@ -86,9 +86,9 @@ API docs (`/docs`) are off in production and additionally blocked by Caddy.
 
 ```bash
 cd jobpilot
-docker compose -f infra/docker-compose.yml exec api python -m jobpilot.ops backup   # safety first
+./jp exec api python -m jobpilot.ops backup   # safety first
 git pull
-docker compose -f infra/docker-compose.yml [-f infra/docker-compose.prod.yml] --env-file .env up -d --build
+./jp up -d --build
 ```
 
 Migrations run on API start. If an upgrade goes wrong, restore the backup you just made

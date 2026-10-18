@@ -1,7 +1,7 @@
 # Operations and troubleshooting
 
-Commands below assume the Docker setup; prefix them with
-`docker compose -f infra/docker-compose.yml exec api` (shortened to `exec api` here).
+Commands below assume the Docker setup and use `./jp`, a shortcut in the repository root for `docker compose` with the right files and `.env`; prefix them with
+`./jp exec api` (shortened to `exec api` here).
 Without Docker, run the same `python -m ...` commands in `backend/` with your environment loaded.
 
 ## Daily health at a glance
@@ -10,7 +10,7 @@ Without Docker, run the same `python -m ...` commands in `backend/` with your en
   themselves once the problem is gone; "Got it" only marks that you have seen one.
 - **Settings & Health → Service health**: database, task queue, scheduler, system monitor, email, Claude API.
 - **Settings & Health → Usage and cost**: Claude spend against the daily budget, searches, applications.
-- Logs: `docker compose -f infra/docker-compose.yml logs --since 1h api worker beat monitor`. The monitor logs one
+- Logs: `./jp logs --since 1h api worker beat monitor`. The monitor logs one
   JSON line per cycle (`"event": "monitor_cycle"`) and per new alert (`"alert_opened"`).
 
 ## Backups
@@ -46,10 +46,10 @@ Restoring replaces **all** current data with the backup. A `pre_restore` backup 
 the backup is verified before anything is touched, and row counts are compared afterwards.
 
 ```bash
-docker compose -f infra/docker-compose.yml stop worker beat monitor
+./jp stop worker beat monitor
 exec api python -m jobpilot.ops list
 exec api python -m jobpilot.ops restore NAME --yes
-docker compose -f infra/docker-compose.yml start worker beat monitor
+./jp start worker beat monitor
 ```
 
 Then sign in again. To restore from a copy you made off the server, put the backup folder back into the volume
@@ -69,9 +69,9 @@ suite (`test_restore_drill_brings_back_identical_data`) and in CI against the re
 
 | Alert | What it means | What to do |
 | --- | --- | --- |
-| The scheduler has stopped / Scheduled searches are not running | No scheduler heartbeat | `docker compose ... up -d beat worker`; check `logs beat worker`. Missed searches run once when it is back. |
-| The system monitor has stopped | Raised by the scheduler | `docker compose ... up -d monitor`; `logs monitor` |
-| The task queue is unreachable / Scheduled searches cannot be queued | Redis down | `docker compose ... up -d redis` |
+| The scheduler has stopped / Scheduled searches are not running | No scheduler heartbeat | `./jp up -d beat worker`; check `logs beat worker`. Missed searches run once when it is back. |
+| The system monitor has stopped | Raised by the scheduler | `./jp up -d monitor`; `logs monitor` |
+| The task queue is unreachable / Scheduled searches cannot be queued | Redis down | `./jp up -d redis` |
 | Tasks are piling up | Worker missing or overloaded | `up -d worker`; check `logs worker` |
 | A search run looks stuck | Running > 20 min | It is failed automatically at 30 min; or press Stop on the run. Check `logs worker`. |
 | Scheduled search … paused | 3 failed scheduled runs in a row | Run it by hand to see the error, fix the source settings, press Resume |
