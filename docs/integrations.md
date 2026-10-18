@@ -23,7 +23,7 @@ the same rule: **Untested** adapters become **Automated** only after their first
 | Scheduler (Celery beat, or `python -m jobpilot.scheduler`) | Implemented | `test_scheduler.py`; `test_live_processes.py` runs real Redis + Celery worker + beat |
 | Independent monitor + alerts | Implemented | `test_monitor.py` (simulated failures, own process, DB outage); live-stack run |
 | Email notifications (SMTP) | Implemented, **live-untested with a real provider** | `test_notifications.py` against a local SMTP server (aiosmtpd): send, 4xx retry, 5xx stop, crash recovery |
-| Docker images | Written, not built here | No Docker daemon in the build environment |
+| Docker images and full stack | Built and smoke-tested in CI | `infra/smoke-test.sh` in GitHub Actions: build, start, sign-in, search, heartbeats, backup, restore drill |
 
 ## Setting up the real sources
 

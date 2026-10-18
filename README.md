@@ -1,5 +1,7 @@
 # JobPilot Europe
 
+[![CI](https://github.com/SSk5714/Job-Search-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/SSk5714/Job-Search-Engine/actions/workflows/ci.yml)
+
 A job-application pipeline for Germany and Europe. It discovers jobs, scores them against
 a **verified** candidate profile, and tracks every application. Nothing is ever submitted
 without your explicit approval.

@@ -82,3 +82,8 @@ jobs:
       - name: Report failure details as annotations
         if: failure()
         run: python3 .github/annotate_failure.py smoke-output.txt smoke-logs.txt
+      - name: Summary
+        if: success()
+        run: |
+          grep -E "^(== |ok: |SMOKE)|jobpilot" smoke-output.txt | grep -v "Container " > summary.txt || true
+          python3 -c "import sys;t=open('summary.txt').read().replace('%','%25').replace('\n','%0A');print('::notice title=Smoke test::'+t[:3800])"
