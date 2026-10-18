@@ -24,9 +24,9 @@ Run on 2026-10-17 against PostgreSQL 16 and Redis 7 (Python 3.13, Node 22, Chrom
 | 7 | Submit blocked without approval | ✅ (guard) | `test_submit_is_blocked_without_approval` |
 | 8 | Changing approved content invalidates approval | ✅ (backend) | `test_editing_a_form_value_invalidates_the_approval`, `test_changed_document_makes_approval_stale` |
 | 9 | Failures do not corrupt records | ✅ | `test_failed_operation_leaves_records_consistent`, `test_concurrent_transitions_apply_exactly_once`, `test_one_broken_source_does_not_stop_the_others` |
-| 10 | Monitor detects simulated failures | Phase 5 | — |
+| 10 | Monitor detects simulated failures | ✅ (Phase 5) | see phase-5.md |
 | 11 | View, edit, export, recover records | ✅ view/edit/export; backup drill in Phase 6 | `test_tracker_csv_export_round_trip`, `test_tracker_follow_up_and_outcome_edit` |
-| 12 | Scheduled searches run unattended | Phase 5 | — |
+| 12 | Scheduled searches run unattended | ✅ (Phase 5) | see phase-5.md |
 | 13 | UI usable without agent knowledge | ✅ | `e2e/test_ui_walkthrough.py` (screenshots in `docs/screenshots/`) |
 | 14 | Missing integrations shown as missing | ✅ | `test_source_labels_are_honest`, `test_unimplemented_source_is_reported_not_faked`, `test_health_details_reports_missing_integrations` |
 

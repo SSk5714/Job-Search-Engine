@@ -5,6 +5,7 @@ import { api, type Fact } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import { ErrorBox, Loading, errorText, useLoad } from "@/components/ui";
 import { MatchingSettings } from "@/components/MatchingSettings";
+import { NotificationSettings } from "@/components/NotificationSettings";
 
 const SECTIONS: { category: string; title: string; hint: string }[] = [
   { category: "contact", title: "Contact", hint: "Shown on your documents. Never sent to Claude." },
@@ -138,7 +139,9 @@ function ProfileEditor() {
 function Health() {
   const { data, error } = useLoad(api.health);
   if (!data) return error ? <ErrorBox message={error} /> : <Loading />;
-  const tone = (s: string) => (s === "ok" ? "ok" : s === "down" ? "down" : "warn");
+  const tone = (s: string) => (s === "ok" ? "ok" : ["down", "not_running"].includes(s) ? "down" : "warn");
+  const LABEL: Record<string, string> = { database: "Database", queue: "Task queue", scheduler: "Scheduler",
+    monitor: "System monitor", claude_api: "Claude API", email: "Email notifications" };
   return (
     <div className="grid two">
       <section className="card">
@@ -163,12 +166,33 @@ function Health() {
         <div className="list small">
           {Object.entries(data.checks).map(([k, c]) => (
             <div key={k}>
-              <span className={`dot ${tone(c.status)}`} /><strong>{k.replace("_", " ")}</strong> · {c.status.replace("_", " ")}
+              <span className={`dot ${tone(c.status)}`} /><strong>{LABEL[k] ?? k.replace("_", " ")}</strong> · {c.status.replaceAll("_", " ")}
               {c.detail && <div className="muted" style={{ marginLeft: 16 }}>{c.detail}</div>}
             </div>
           ))}
         </div>
         <p className="small muted" style={{ marginTop: 12 }}>Checked {dateTime(new Date().toISOString())}</p>
+        {(data.monitor_history ?? []).length > 0 && (
+          <details className="small" style={{ marginTop: 8 }}>
+            <summary>Monitor history (status changes)</summary>
+            <div className="list" style={{ marginTop: 6 }}>
+              {data.monitor_history!.map((h, i) => (
+                <div key={i}><span className={`dot ${tone(h.status)}`} />{h.check} → {h.status} · <span className="muted">{dateTime(h.at)}</span></div>
+              ))}
+            </div>
+          </details>
+        )}
+        {(data.recent_errors ?? []).length > 0 && (
+          <details className="small" style={{ marginTop: 8 }}>
+            <summary>Recent errors (technical)</summary>
+            <div className="list" style={{ marginTop: 6 }}>
+              {data.recent_errors!.map((e, i) => (
+                <div key={i}><strong>{e.component}</strong> · {e.code} · <span className="muted">{dateTime(e.at)}</span>
+                  <div className="muted mono" style={{ wordBreak: "break-word" }}>{e.message}</div></div>
+              ))}
+            </div>
+          </details>
+        )}
       </section>
     </div>
   );
@@ -185,6 +209,7 @@ export default function SettingsPage() {
       </div>
       <ProfileEditor />
       <MatchingSettings />
+      <NotificationSettings />
       <Health />
     </>
   );

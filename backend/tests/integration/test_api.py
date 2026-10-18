@@ -97,7 +97,9 @@ def test_dashboard_counts(api):
 def test_health_details_reports_missing_integrations(api):
     h = api.get("/health/details").json()
     assert h["checks"]["database"]["status"] == "ok"
-    assert h["checks"]["monitor"]["status"] == "not_implemented"
+    assert h["checks"]["monitor"]["status"] == "not_running"  # honest: nothing started it in tests
+    assert h["checks"]["scheduler"]["status"] == "not_started"
+    assert h["checks"]["email"]["status"] == "not_configured"
     assert h["checks"]["claude_api"]["status"] in ("not_configured", "configured_untested")
 
 

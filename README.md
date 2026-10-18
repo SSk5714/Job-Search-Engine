@@ -8,7 +8,7 @@ One deterministic orchestrator owns all workflow state in PostgreSQL. Specialize
 (discovery, matching, documents and form preparation) only return validated
 results, and AI is used only where language understanding helps.
 
-**Status: Phase 4 of 6 (form preparation and approved submission) complete.** See [what works today](#what-works-today)
+**Status: Phase 5 of 6 (scheduling, monitoring and notifications) complete.** See [what works today](#what-works-today)
 and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 
 ![Job Review](docs/screenshots/04-job-review.png)
@@ -28,14 +28,17 @@ and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 - **Form preparation**: an isolated headless browser opens only the employer's application page, reads the form, fills what your verified profile supports, attaches your verified CV and letter, takes a screenshot and never clicks submit. Salary, start date, work permit, sponsorship, consent, disability, gender, nationality and date of birth are always left to you (with a hint from your profile where one exists).
 - CAPTCHAs, sign-in walls, redirects to other sites, and LinkedIn, StepStone, Indeed and XING become a manual handoff: you apply yourself with the verified documents and record it.
 - **Final review and submission**: you approve the exact documents and answers; changing either cancels the approval. Submission is recorded before the browser starts, runs once per approval, and an unclear result (including a server error after sending) stops the workflow with a critical alert until you confirm what happened. Follow-up is scheduled 10 days later.
+- **Scheduled searches**: daily, weekdays, weekly, every few hours or cron (Berlin time, at most hourly). Each due time starts exactly once, even with two schedulers; time missed while the scheduler was down is caught up with one run; overlapping runs are skipped unless you allow them. After three failed scheduled runs in a row the schedule pauses with an alert until you press Resume.
+- **Recovery**: runs stuck beyond the worker's hard time limit are marked failed automatically, so they never block the schedule; you can also stop a stuck run yourself. A queue outage fails the run visibly instead of leaving it "running".
+- **Independent monitor**: a separate process with its own loop and heartbeat checks the database, queue, scheduler heartbeat, missed or failed schedules, stuck runs, repeated source failures, error spikes, Claude API errors, browser failures, missing or corrupt documents, closed listings, applications stuck in a state, duplicate applications or submissions, and failed email delivery. Every alert says what, where, why, what to do and whether the workflow is paused, and closes by itself once the problem is gone. It never changes workflow data. The scheduler watches the monitor's heartbeat, and the monitor watches the scheduler's. If the database is down, the monitor writes a local fallback log and sends one email.
+- **Notifications**: in-app (with an unread badge) and optional email: new high-fit jobs (one summary per search), ready for your approval, submission confirmed, follow-up reminders and system alerts. No notification per low-level error. Email retries transient failures with backoff (5 attempts), stops on permanent ones, and never sends the same notification twice.
 - The full application state machine with guards, history, optimistic locking and idempotent writes
 - Approval binding to document and form-value hashes, with invalidation on any change (backend)
 - Profile editor with versioning and per-fact verification
 - Dashboard, Job Discovery, Job Review, Tracker with history drawer, CSV export, Settings & Health
 - Honest status: sources and services that aren't built are labelled Planned, Manual or not implemented
 
-Not yet: scheduler, monitor and notifications (5),
-production hardening (6).
+Not yet: production hardening (6): security review, backups and restore drill, deployment guide.
 
 > The real sources and Claude were tested against recorded responses and a fake model, because the
 > build environment has no outbound access or API key. The app labels them **Untested** until your
@@ -71,6 +74,9 @@ alembic upgrade head
 uvicorn jobpilot.main:app --reload --port 8000
 # Optional queue: export JOBPILOT_REDIS_URL=redis://localhost:6379/0
 #                 celery -A jobpilot.worker worker -l info
+#                 celery -A jobpilot.worker beat -l info      # scheduled searches
+# Without Redis:  python -m jobpilot.scheduler                # same scheduler, own loop
+# Monitor:        python -m jobpilot.monitor                  # always a separate process
 
 # Frontend (second terminal)
 cd frontend
@@ -89,13 +95,14 @@ Without `JOBPILOT_REDIS_URL`, search runs execute inside the API process.
    Paste the application page URL and press **Prepare form**, answer the fields marked "needs you",
    approve, then **Submit application now** (or apply yourself and press **I submitted it myself**).
 5. **Tracker**: follow-ups, outcomes, full history, CSV export.
+6. **Job Discovery → Schedule**: let the search run by itself (e.g. weekdays at 07:30). **Notifications** shows alerts and updates; set email in **Settings & Health**.
 
 ## Tests
 
 ```bash
 cd backend
 createdb jobpilot_test
-pytest                                   # 174 tests on a real Postgres via the migrations
+pytest                                   # 219 tests, incl. real Celery beat + worker + Redis on a real Postgres via the migrations
 
 # Browser walkthrough against a running, freshly migrated stack
 python mock-portal/mock_portal.py &       # practice application portal on :8100
@@ -106,7 +113,7 @@ The mock portal (`docker compose --profile demo up mock-portal`) has variants fo
 CAPTCHA, sign-in wall, unclear result, server error and off-site redirect at `/apply/<variant>`.
 To try it from the app, set `JOBPILOT_BROWSER_ALLOW_PRIVATE_HOSTS=true` (local addresses are blocked otherwise).
 
-Latest results: [docs/test-results/phase-4.md](docs/test-results/phase-4.md).
+Latest results: [docs/test-results/phase-5.md](docs/test-results/phase-5.md).
 
 ## Configuration
 
@@ -123,6 +130,11 @@ Latest results: [docs/test-results/phase-4.md](docs/test-results/phase-4.md).
 | `JOBPILOT_AI_PRICES` | no | JSON price override, e.g. `{"claude-haiku-5-5": [0.10, 0.50]}` (USD per MTok) |
 | `JOBPILOT_HTTP_USER_AGENT` | no | Sent to job sources |
 | `JOBPILOT_DOCUMENTS_DIR` | no | Where generated documents are stored (default `./storage/documents`; personal data, back it up) |
+| `JOBPILOT_SCHEDULER_INTERVAL_S`, `JOBPILOT_MONITOR_INTERVAL_S` | no | Default 60 |
+| `JOBPILOT_RUN_STALL_MINUTES` | no | A run still running after this is marked failed (default 30) |
+| `JOBPILOT_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `_STARTTLS`, `_SSL` | for email | SMTP server; email stays off without it |
+| `JOBPILOT_EMAIL_FROM`, `JOBPILOT_NOTIFY_EMAIL_TO` | for email | Sender and your address (keep in `.env`, never in the repository) |
+| `JOBPILOT_PUBLIC_BASE_URL` | no | Base of links in emails |
 | `JOBPILOT_API_URL` (frontend) | yes | Where Next.js proxies `/api/v1` |
 
 ## Repository layout
@@ -133,11 +145,14 @@ backend/
     domain/        states.py (transition table), transitions.py (only state writer),
                    approvals.py, dedup.py, scoring.py (rules-v0), profile.py
     orchestrator/  runs.py: plans runs, isolates sources, persists results
+                   scheduler.py: due searches, stalled runs, pauses, follow-ups, emails, monitor watch
+    monitor/       independent monitor: deterministic checks, alerts, heartbeat (python -m jobpilot.monitor)
+    notify/        notifications, alerts, email delivery with retries
     agents/        discovery adapters (BA, Greenhouse, Lever, Personio, mock), Claude matcher
     ai/            provider interface, Claude client (structured outputs, pricing)
     documents/     content schema, fact book, verifier, template + Claude generators, DOCX/PDF renderers
     api/           routers, auth, CSRF, idempotency
-    db/            models (23 tables), session
+    db/            models (27 tables), session, heartbeats
     worker.py      Celery app
     bootstrap.py   sources, seed profile, default search, admin user
   migrations/      Alembic
@@ -167,10 +182,13 @@ wireframes, security model, acceptance-test plan) is in
 - Field recognition is rule-based (English and German labels). Unusual forms leave more fields for you, and multi-page or JavaScript-heavy portals (Workday, SuccessFactors) are not supported yet and fall back to manual.
 - Browser submission was tested only against the mock portal. Watch your first real submissions closely.
 - Single user. No password change or login rate limiting yet (Phase 6).
-- No scheduler or independent monitor yet (Phase 5); runs are started by hand.
+- Alerts and emails reach you only while the scheduler (for email) and monitor processes run. The monitor checks the scheduler and vice versa, but if both stop, nothing alerts you; Settings & Health then shows both as down.
+- Email is plain SMTP. Tested against a local SMTP server, not a real provider (Gmail and others need an app password).
+- Follow-up reminders and schedules use Europe/Berlin time.
 - The seed profile is unverified on purpose. Fill in eligibility, languages and the period since August 2025 before relying on scores.
 
 ## Next steps
 
-Phase 5: scheduled searches (Celery beat), an independent monitor that checks stuck runs and
-applications, and email/in-app notifications for new matches, failures and follow-ups.
+Phase 6: production readiness: security review, login rate limiting and password change, database and
+documents backup with a tested restore, Docker images built and smoke-tested, deployment and troubleshooting
+guides, usage and cost overview.

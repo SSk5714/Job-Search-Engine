@@ -173,3 +173,30 @@ def test_walkthrough(page):
     shot(page, "12-submitted")
     received = httpx.get(f"{portal}/submissions").json()
     assert len(received) == 1 and received[0]["first_name"] == "Alex" and received[0]["privacy"] == "accepted"
+
+    # Phase 5: the submission and the approval request show up as notifications
+    page.get_by_role("link", name="Notifications").click()
+    page.get_by_role("heading", name="Notifications").wait_for()
+    page.get_by_role("tab", name="Updates").click()
+    page.get_by_text("Application sent:").first.wait_for()
+    page.get_by_text("Ready for your approval:").first.wait_for()
+    shot(page, "13-notifications")
+
+    # Phase 5: schedule the search to run by itself
+    page.get_by_role("link", name="Job Discovery").click()
+    page.get_by_role("heading", name="Schedule").wait_for()
+    page.get_by_label("How often").select_option("weekdays")
+    page.get_by_label("At (Berlin time)").fill("07:30")
+    page.get_by_role("button", name="Save schedule").click()
+    page.get_by_text("Weekdays at 07:30 (Europe/Berlin)").wait_for()
+    page.get_by_text("next run").wait_for()
+    shot(page, "14-schedule")
+
+    # Phase 5: health shows the scheduler and the independent monitor
+    page.get_by_role("link", name="Settings & Health").click()
+    page.get_by_role("heading", name="Notifications").wait_for()
+    page.get_by_role("heading", name="Service health").wait_for()
+    if os.environ.get("JOBPILOT_E2E_EXPECT_MONITOR"):
+        page.get_by_text("System monitor · ok").wait_for(timeout=90000)
+        page.get_by_text("Scheduler · ok").wait_for()
+    shot(page, "15-health")

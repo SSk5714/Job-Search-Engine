@@ -58,3 +58,59 @@ def put_ai(body: dict, db: Session = Depends(get_db)):
     app_settings.put(db, "ai", ai)
     db.commit()
     return get_ai(db)
+
+
+@router.get("/notifications")
+def get_notifications(db: Session = Depends(get_db)):
+    s = get_settings()
+    prefs = app_settings.get(db, "notifications")
+    return {**prefs.model_dump(), "email_configured": s.email_configured,
+            "email_to_hint": _mask(s.notify_email_to) if s.notify_email_to else None,
+            "kinds": list(app_settings.EMAIL_KINDS)}
+
+
+def _mask(addr: str) -> str:
+    name, _, domain = addr.partition("@")
+    return f"{name[:2]}…@{domain}" if domain else "…"
+
+
+@router.put("/notifications")
+def put_notifications(body: dict, db: Session = Depends(get_db)):
+    prefs = _validated(app_settings.NotificationSettings, body)
+    app_settings.put(db, "notifications", prefs)
+    db.commit()
+    return get_notifications(db)
+
+
+@router.post("/notifications/test-email")
+def test_email(db: Session = Depends(get_db)):
+    """Sends one email right now (not queued) so you can check the SMTP settings."""
+    from email.message import EmailMessage
+
+    from jobpilot.notify.delivery import PermanentError, TransientError, smtp_send
+
+    s = get_settings()
+    if not s.email_configured:
+        raise DomainError("not_configured", "Set JOBPILOT_SMTP_HOST, JOBPILOT_EMAIL_FROM and "
+                          "JOBPILOT_NOTIFY_EMAIL_TO on the server first")
+    msg = EmailMessage()
+    msg["Subject"], msg["From"], msg["To"] = "[JobPilot] Test email", s.email_from, s.notify_email_to
+    msg.set_content("Email notifications from JobPilot Europe work.")
+    try:
+        smtp_send(msg)
+    except (TransientError, PermanentError) as e:
+        raise DomainError("email_failed", f"Could not send: {e}", status_code=502)
+    return {"sent": True, "to": _mask(s.notify_email_to)}
+
+
+@router.get("/monitor")
+def get_monitor(db: Session = Depends(get_db)):
+    return app_settings.get(db, "monitor").model_dump()
+
+
+@router.put("/monitor")
+def put_monitor(body: dict, db: Session = Depends(get_db)):
+    cfg = _validated(app_settings.MonitorSettings, {**app_settings.get(db, "monitor").model_dump(), **body})
+    app_settings.put(db, "monitor", cfg)
+    db.commit()
+    return cfg.model_dump()

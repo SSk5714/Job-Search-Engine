@@ -20,9 +20,9 @@ the same rule: **Untested** adapters become **Automated** only after their first
 | Claude document writing | Implemented, **live-untested** | Fake provider that fabricates a claim; the verifier catches it |
 | Playwright form preparation | Implemented, **tested against the mock portal only** | `test_preparation.py`, `test_field_classifier.py`, e2e walkthrough; real employer sites untested |
 | Browser submission after approval | Implemented, **tested against the mock portal only** | Success, validation failure, unclear result, HTTP 500, CAPTCHA, sign-in, off-site, retries |
-| Scheduler (Celery beat) | Pending (Phase 5) | Health shows `not_implemented` |
-| Independent monitor + alerts | Pending (Phase 5) | Health shows `not_implemented` |
-| Email notifications | Pending (Phase 5) | — |
+| Scheduler (Celery beat, or `python -m jobpilot.scheduler`) | Implemented | `test_scheduler.py`; `test_live_processes.py` runs real Redis + Celery worker + beat |
+| Independent monitor + alerts | Implemented | `test_monitor.py` (simulated failures, own process, DB outage); live-stack run |
+| Email notifications (SMTP) | Implemented, **live-untested with a real provider** | `test_notifications.py` against a local SMTP server (aiosmtpd): send, 4xx retry, 5xx stop, crash recovery |
 | Docker images | Written, not built here | No Docker daemon in the build environment |
 
 ## Setting up the real sources

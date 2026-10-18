@@ -11,6 +11,7 @@ from jobpilot.api import (
     routes_auth_profile,
     routes_dashboard,
     routes_jobs,
+    routes_notifications,
     routes_search,
     routes_settings,
 )
@@ -62,7 +63,8 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
 
     deps = [Depends(csrf_protect)]
     for r in (routes_auth_profile.auth, routes_auth_profile.router, routes_search.router, routes_jobs.router,
-              routes_applications.router, routes_dashboard.router, routes_settings.router):
+              routes_applications.router, routes_dashboard.router, routes_settings.router,
+              routes_notifications.router):
         app.include_router(r, prefix="/api/v1", dependencies=deps)
     return app
 

@@ -43,6 +43,31 @@ services:
     volumes: [documents:/app/storage/documents]
     depends_on:
       api: { condition: service_started }
+    restart: unless-stopped
+
+  beat:  # sends the orchestrator's scheduler tick once a minute (scheduled searches, follow-ups, emails)
+    build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
+    env_file: ../.env
+    environment:
+      JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
+      JOBPILOT_REDIS_URL: redis://redis:6379/0
+    command: celery -A jobpilot.worker beat -l info -s /tmp/celerybeat-schedule
+    depends_on:
+      api: { condition: service_started }
+    restart: unless-stopped
+
+  monitor:  # independent: own loop and heartbeat, no Celery; keeps working when the queue or scheduler fail
+    build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
+    env_file: ../.env
+    environment:
+      JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
+      JOBPILOT_REDIS_URL: redis://redis:6379/0
+      JOBPILOT_MONITOR_FALLBACK_LOG: /app/storage/monitor/fallback.jsonl
+    command: python -m jobpilot.monitor
+    volumes: [documents:/app/storage/documents:ro, monitorlog:/app/storage/monitor]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
 
   mock-portal:  # demo/test employer portal; remove in real use
     image: python:3.12-slim
@@ -62,4 +87,5 @@ services:
 
 volumes:
   pgdata:
+  monitorlog:  # monitor's fallback log when the database is unreachable
   documents:  # generated CVs and cover letters: back this up with the database

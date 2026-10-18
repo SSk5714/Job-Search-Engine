@@ -13,7 +13,7 @@ const TILES: { key: keyof import("@/lib/api").Dashboard["counts"]; label: string
   { key: "submitted", label: "Submitted", href: "/tracker?state=submitted" },
   { key: "follow_ups_due", label: "Follow-ups due (7 days)", href: "/tracker" },
   { key: "failed_tasks", label: "Failed tasks", href: "/settings", alert: true },
-  { key: "warnings", label: "Active warnings", href: "/settings", alert: true },
+  { key: "warnings", label: "Open alerts", href: "/notifications", alert: true },
 ];
 
 export default function DashboardPage() {
@@ -82,7 +82,36 @@ export default function DashboardPage() {
             </section>
 
             <section className="card">
-              <h2>System</h2>
+              <h2>Needs attention</h2>
+              {(data.open_alerts ?? []).length === 0 ? (
+                <p className="small"><span className="dot ok" />No open alerts</p>
+              ) : (
+                <div className="list small">
+                  {data.open_alerts!.map((a) => (
+                    <Link key={a.id} href={a.link ?? "/notifications"} style={{ color: "inherit" }}>
+                      <span className={`dot ${a.severity === "critical" ? "down" : a.severity === "warning" ? "warn" : "ok"}`} />
+                      <strong>{a.title}</strong>{a.workflow_paused && <span className="badge warn" style={{ marginLeft: 6 }}>paused</span>}
+                      {a.remediation && <div className="muted">{a.remediation}</div>}
+                    </Link>
+                  ))}
+                  <Link href="/notifications" className="small">All alerts →</Link>
+                </div>
+              )}
+              {(data.upcoming_follow_ups ?? []).length > 0 && (
+                <>
+                  <div className="sep" />
+                  <h2>Upcoming follow-ups</h2>
+                  <div className="list small">
+                    {data.upcoming_follow_ups!.map((f) => (
+                      <Link key={f.application_id} href="/tracker" className="row" style={{ justifyContent: "space-between", color: "inherit" }}>
+                        <span>{f.title} · <span className="muted">{f.company}</span></span><span>{f.due}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div className="sep" />
+              <h2>Recent errors</h2>
               {data.recent_errors.length === 0 ? (
                 <p className="small"><span className="dot ok" />No errors in the last 7 days</p>
               ) : (

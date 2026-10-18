@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, type SearchConfig, type SearchRun } from "@/lib/api";
 import { TRACKS, dateTime } from "@/lib/format";
 import { ErrorBox, Loading, errorText, useLoad } from "@/components/ui";
+import { ScheduleCard } from "@/components/ScheduleCard";
 
 const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
@@ -18,13 +19,20 @@ const OPTION_FIELDS: Record<string, { key: string; label: string; placeholder: s
 };
 const LABEL_TONE: Record<string, string> = { Automated: "good", Untested: "warn", Mock: "accent" };
 
-function RunStatus({ run }: { run: SearchRun }) {
+function RunStatus({ run, onStop }: { run: SearchRun; onStop: () => void }) {
   const tone = run.status === "completed" ? "good" : run.status === "running" ? "accent" : run.status === "partial" ? "warn" : "bad";
   const s = run.summary as Record<string, number>;
   return (
     <tr>
-      <td>{dateTime(run.started_at)}</td>
-      <td><span className={`badge ${tone}`}>{run.status}</span></td>
+      <td>{dateTime(run.started_at)}<div className="small muted">{run.trigger === "schedule" ? "scheduled" : "by you"}</div></td>
+      <td><span className={`badge ${tone}`}>{run.status}</span>
+        {run.status === "running" && Date.now() - new Date(run.started_at).getTime() > 10 * 60_000 && (
+          <button className="btn small" style={{ marginLeft: 6 }} title="Mark this stuck run as failed so the search can run again"
+            onClick={async () => { if (confirm("Stop this run? Jobs it already saved are kept.")) { await api.stopRun(run.id).catch(() => undefined); onStop(); } }}>
+            Stop</button>
+        )}
+        {run.status === "failed" && typeof run.summary.error === "string" && <div className="small muted">{run.summary.error as string}</div>}
+      </td>
       <td className="small">
         {run.status === "running" ? "…" : `${s.fetched ?? 0} fetched · ${s.new ?? 0} new · ${(s.duplicate_url ?? 0) + (s.duplicate_fingerprint ?? 0)} duplicates`}
       </td>
@@ -166,9 +174,14 @@ export default function DiscoveryPage() {
         ) : <Loading />}
         <p className="small muted" style={{ marginTop: 10 }}>
           Manual-only sites (LinkedIn, StepStone, Indeed, XING) are added one at a time with “Add job from URL” in Job Review.
-          Scheduled searches arrive in Phase 5.
         </p>
       </section>
+
+      <ScheduleCard key={`${draft.id}-${draft.cron}-${draft.paused_reason}`} config={draft} onSaved={(c) => {
+        setDraft({ ...draft, cron: c.cron, timezone: c.timezone, allow_overlap: c.allow_overlap, schedule_text: c.schedule_text,
+          next_run_at: c.next_run_at, paused_reason: c.paused_reason, last_dispatch: c.last_dispatch });
+        configs.reload();
+      }} />
 
       <section className="card">
         <h2>Recent runs</h2>
@@ -176,7 +189,7 @@ export default function DiscoveryPage() {
           <div className="table-wrap">
             <table>
               <thead><tr><th>Started</th><th>Status</th><th>Result</th><th>Sources</th></tr></thead>
-              <tbody>{runs.data.map((r) => <RunStatus key={r.id} run={r} />)}</tbody>
+              <tbody>{runs.data.map((r) => <RunStatus key={r.id} run={r} onStop={runs.reload} />)}</tbody>
             </table>
           </div>
         ) : <p className="small muted">No runs yet.</p>}

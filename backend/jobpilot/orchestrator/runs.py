@@ -51,11 +51,11 @@ def start_run(db: Session, config_id: uuid.UUID, trigger: str = "manual") -> m.S
     if config is None:
         raise DomainError("not_found", "Search configuration not found", status_code=404)
     run = m.SearchRun(config_id=config.id, trigger=trigger, status="running", allow_overlap=config.allow_overlap)
-    db.add(run)
     try:
-        db.flush()
+        with db.begin_nested():  # savepoint: the caller's other work survives a conflict
+            db.add(run)
+            db.flush()
     except IntegrityError:
-        db.rollback()
         raise DomainError("run_in_progress", "A run for this search is already in progress")
     return run
 
@@ -108,6 +108,31 @@ def _ingest(db: Session, source: m.JobSource, raw: RawJob, run_id: uuid.UUID) ->
         return "closed"
     transitions.create_application(db, job.id)
     return "new"
+
+
+def _notify_high_fit(db: Session, run: m.SearchRun) -> None:
+    """One summary per run (never one per job) when new high-fit jobs await review."""
+    from jobpilot.domain import settings as app_settings
+    from jobpilot.notify import notify
+
+    threshold = app_settings.get(db, "notifications").high_fit_min_score
+    rows = db.execute(
+        select(m.Job.title, m.Job.company, m.JobMatchEvaluation.score)
+        .join(m.Application, m.Application.job_id == m.Job.id)
+        .join(m.JobMatchEvaluation, m.JobMatchEvaluation.job_id == m.Job.id)
+        .where(m.Job.first_seen_run_id == run.id, m.Application.state == "classified",
+               m.JobMatchEvaluation.score >= threshold)
+        .order_by(m.JobMatchEvaluation.score.desc())).all()
+    seen, top = set(), []
+    for title, company, score in rows:
+        if (title, company) not in seen:
+            seen.add((title, company))
+            top.append(f"{score} · {title} at {company}")
+    if not top:
+        return
+    notify(db, "high_fit", f"{len(top)} new high-fit job{'s' if len(top) != 1 else ''} to review",
+           "\n".join(top[:5]) + (f"\n…and {len(top) - 5} more" if len(top) > 5 else ""),
+           dedup_key=f"high_fit:{run.id}", link="/jobs", context={"run_id": str(run.id), "count": len(top)})
 
 
 def execute_run(run_id: uuid.UUID) -> dict:
@@ -197,6 +222,12 @@ def execute_run(run_id: uuid.UUID) -> dict:
         run.summary = {**counts, "classified": classified.get("classified", 0), "matching": classified,
                        "sources": per_source}
         db.commit()
+        try:
+            _notify_high_fit(db, run)
+            db.commit()
+        except Exception:  # a notification problem never fails a finished run
+            db.rollback()
+            log.exception("high-fit notification failed for run %s", run.id)
         return run.summary
     except Exception as exc:
         db.rollback()

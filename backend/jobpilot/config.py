@@ -38,6 +38,26 @@ class Settings(BaseSettings):
     browser_allow_private_hosts: bool = False  # only for local test portals
     follow_up_days: int = 10
 
+    # Phase 5: scheduler, monitor, notifications
+    public_base_url: str = "http://localhost:3000"  # used for links in emails
+    scheduler_interval_s: int = 60
+    monitor_interval_s: int = 60
+    run_stall_minutes: int = 30  # a run still "running" after this is marked failed (the worker hard limit is 15)
+    monitor_fallback_log: str = "./storage/monitor-fallback.jsonl"  # written when the database is unreachable
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+    smtp_timeout_s: float = 15.0
+    email_from: str | None = None
+    notify_email_to: str | None = None  # your address; kept in the environment, never in the repository
+
+    @property
+    def email_configured(self) -> bool:
+        return bool(self.smtp_host and self.email_from and self.notify_email_to)
+
 
 @lru_cache
 def get_settings() -> Settings:

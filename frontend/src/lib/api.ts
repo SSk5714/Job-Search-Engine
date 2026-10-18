@@ -186,6 +186,60 @@ export interface SearchConfig {
   cron: string | null;
   allow_overlap: boolean;
   enabled: boolean;
+  timezone?: string;
+  schedule_text?: string;
+  next_run_at?: string | null;
+  paused_reason?: string | null;
+  paused_at?: string | null;
+  last_dispatch?: { due_at: string; outcome: "started" | "skipped_overlap" | "failed_to_start"; run_id: string | null;
+                    detail: string | null } | null;
+}
+
+export interface Cadence {
+  kind: "off" | "every_hours" | "daily" | "weekdays" | "weekly" | "cron";
+  every_hours?: number;
+  at?: string;
+  weekday?: "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
+  cron?: string;
+  timezone?: string;
+  allow_overlap?: boolean;
+}
+
+export interface NotificationT {
+  id: string;
+  kind: "alert" | "high_fit" | "ready_for_review" | "submitted" | "follow_up";
+  severity: "info" | "warning" | "critical";
+  title: string;
+  body: string;
+  link: string | null;
+  created_at: string;
+  last_seen_at: string | null;
+  read_at: string | null;
+  acknowledged_at: string | null;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  alert_key: string | null;
+  component: string | null;
+  run_id: string | null;
+  task_id: string | null;
+  likely_cause: string | null;
+  remediation: string | null;
+  workflow_paused: boolean;
+  occurrences: number;
+  can_resolve: boolean;
+  context: Record<string, unknown>;
+  deliveries: { channel: string; status: string; attempts: number; last_error: string | null; sent_at: string | null }[];
+}
+
+export interface NotificationPrefs {
+  email_enabled: boolean;
+  email_kinds: string[];
+  email_alert_min_severity: "info" | "warning" | "critical";
+  high_fit_min_score: number;
+  follow_up_lead_days: number;
+  email_configured?: boolean;
+  email_to_hint?: string | null;
+  kinds?: string[];
 }
 
 export interface SearchRun {
@@ -246,11 +300,16 @@ export interface Dashboard {
               recommendation: string }[];
   last_run: SearchRun | null;
   recent_errors: { component: string; severity: string; code: string; message: string; at: string }[];
+  open_alerts?: { id: string; severity: string; title: string; remediation: string | null; workflow_paused: boolean;
+                  link: string | null; created_at: string }[];
+  upcoming_follow_ups?: { application_id: string; company: string; title: string; due: string }[];
 }
 
 export interface HealthDetails {
-  checks: Record<string, { status: string; detail?: string }>;
+  checks: Record<string, { status: string; detail?: string; last_beat?: string }>;
   sources: Source[];
+  monitor_history?: { check: string; status: string; detail: string | null; at: string }[];
+  recent_errors?: { component: string; severity: string; code: string; message: string; at: string; run_id: string | null }[];
 }
 
 export class ApiError extends Error {
@@ -350,6 +409,23 @@ export const api = {
   markSubmitted: (id: string, note?: string) => request<ApplicationDetail>("POST", `/applications/${id}/mark-submitted`, { note }, true),
   evidenceUrl: (id: string, file: string) => `${BASE}/applications/${id}/evidence?file=${encodeURIComponent(file)}`,
   exportProfile: () => request<{ format: string; facts: Fact[] }>("GET", "/profile/export"),
+  setSchedule: (id: string, c: Cadence) => request<SearchConfig>("PUT", `/search-configs/${id}/schedule`, c),
+  resumeSchedule: (id: string) => request<SearchConfig>("POST", `/search-configs/${id}/resume`, {}),
+  stopRun: (id: string) => request<SearchRun>("POST", `/search-runs/${id}/stop`, {}),
+  notifications: (kind: "all" | "alerts" | "updates" = "all", status: "open" | "all" = "all") =>
+    request<NotificationT[]>("GET", `/notifications?kind=${kind}&status=${status}`),
+  notificationSummary: () => request<{ unread: number; open_alerts: Record<"critical" | "warning" | "info", number> }>(
+    "GET", "/notifications/summary"),
+  markRead: (id: string) => request<NotificationT>("POST", `/notifications/${id}/read`, {}),
+  readAll: () => request<{ marked: number }>("POST", "/notifications/read-all", {}),
+  ackAlert: (id: string) => request<NotificationT>("POST", `/alerts/${id}/ack`, {}),
+  resolveAlert: (id: string) => request<NotificationT>("POST", `/alerts/${id}/resolve`, {}),
+  retryDelivery: (id: string) => request<{ requeued: number; note: string }>("POST", `/notifications/${id}/retry-delivery`, {}),
+  notificationPrefs: () => request<NotificationPrefs>("GET", "/settings/notifications"),
+  saveNotificationPrefs: (p: NotificationPrefs) => request<NotificationPrefs>("PUT", "/settings/notifications", {
+    email_enabled: p.email_enabled, email_kinds: p.email_kinds, email_alert_min_severity: p.email_alert_min_severity,
+    high_fit_min_score: p.high_fit_min_score, follow_up_lead_days: p.follow_up_lead_days }),
+  testEmail: () => request<{ sent: boolean; to: string }>("POST", "/settings/notifications/test-email", {}),
   importProfile: (data: { format: string; facts: Fact[] }) =>
     request<Profile>("POST", "/profile/import", { format: data.format, facts: data.facts.map(({ category, entry, key, value, context, source_note }) => ({ category, entry: entry ?? null, key, value: value ?? "", context: context ?? null, source_note: source_note ?? null })) }, true),
 };

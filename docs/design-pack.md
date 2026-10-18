@@ -122,7 +122,10 @@ with `Idempotent-Replay: true`, a reused key with a different body returns 422.
 | POST /jobs/{id}/recheck, POST /jobs/rescore | Availability recheck; re-evaluate jobs awaiting review | 2 ✅ |
 | GET/PUT /settings/scoring, GET/PUT /settings/ai | Weights, thresholds, matcher, AI limits | 2 ✅ |
 | POST /applications/{id}/documents/generate | CV and cover letter | 3 |
-| GET /alerts, POST /alerts/{id}/ack | Monitor alerts | 5 |
+| GET /alerts, POST /alerts/{id}/ack, POST /alerts/{id}/resolve | Monitor alerts | 5 ✅ |
+| GET /notifications, GET /notifications/summary, POST /notifications/{id}/read, POST /notifications/read-all, POST /notifications/{id}/retry-delivery | In-app notifications and email retry | 5 ✅ |
+| PUT /search-configs/{id}/schedule, POST /search-configs/{id}/resume, GET /search-configs/{id}/dispatches, POST /search-runs/{id}/stop | Scheduling and recovery | 5 ✅ |
+| GET/PUT /settings/notifications, POST /settings/notifications/test-email, GET/PUT /settings/monitor | Notification preferences, monitor thresholds | 5 ✅ |
 
 Error shape: `{"error": {"code", "message", "details"}}`. Codes include
 `invalid_transition`, `forbidden_actor`, `guard_failed`, `approval_required`,
@@ -222,4 +225,42 @@ current status.
   automatically; you confirm the outcome. A partial unique index allows one successful submission per application.
 - **Evidence.** Screenshots of the prepared form and of the result page are kept per application and served only to the
   signed-in user.
+
+## 12. Scheduling, monitoring and notifications (as built, Phase 5)
+
+- **Scheduler** (`orchestrator/scheduler.py`). One `tick()` a minute, sent by Celery beat to the worker, or run by
+  `python -m jobpilot.scheduler` without Redis. A Postgres advisory lock (on its own connection) serialises ticks.
+  Steps: heartbeat → start due searches → mark stalled runs failed → pause failing schedules → follow-up reminders →
+  check the monitor's heartbeat → send due emails. A failing step is logged and never stops the others.
+- **Schedules.** `search_configs.cron` + `timezone` (Europe/Berlin); presets in the UI, cron for experts, at most
+  hourly. Next times are computed on local wall-clock time, so daylight-saving changes are correct.
+  `schedule_dispatches` has one row per (schedule, due time) with a unique key, so a due time starts exactly once.
+  Outcomes: `started`, `skipped_overlap` (previous run still going, unless overlap is allowed), `failed_to_start`
+  (alert). Missed times are caught up with one run. Three failed scheduled runs in a row pause the schedule with an
+  alert (`workflow_paused`); Resume clears it and earlier failures stop counting.
+- **Recovery.** Runs still `running` after `JOBPILOT_RUN_STALL_MINUTES` (30, above the 15-minute worker hard limit)
+  are marked failed by the orchestrator. You can stop a stuck run yourself. If the queue is down when a run is
+  enqueued, the run is failed at once and a critical alert is raised.
+- **Monitor** (`monitor/`). A separate process with its own loop; it does not use Celery or the scheduler.
+  Deterministic checks: database, queue (Redis ping and backlog), scheduler heartbeat, overdue or failed schedules,
+  repeated overlap skips, stalled runs, failed last runs, repeated source failures (with likely cause per error code),
+  error spikes, Claude API auth, rate-limit and error counts, browser failures, missing or corrupt document files,
+  closed listings, applications stuck beyond per-state thresholds, duplicate applications, duplicate, stuck or
+  unclear submissions, failed or overdue email. Monitor alerts use the `mon:` key prefix and close themselves when
+  the condition clears; a check that crashes becomes its own alert and does not close its alerts. The monitor only
+  writes notifications, `health_checks` (status changes only) and its heartbeat; a test checks that workflow tables
+  are byte-identical before and after a cycle with many failures.
+- **Heartbeats.** `heartbeats` rows for `scheduler` and `monitor`. The monitor alerts when the scheduler's is stale
+  (more than 3 intervals); the scheduler alerts when the monitor's is stale. If the database is unreachable, the
+  monitor writes a JSONL fallback log, emails once per outage, and records the outage as an alert when it is back.
+- **Alerts.** Stored in `notifications` with severity, component, run and task id, detection time, summary, likely
+  cause, remediation and `workflow_paused`. One open alert per key: repeats increase `occurrences`, a higher
+  severity escalates in place. Acknowledge keeps it open; only alerts nothing can re-check (a past outage) can be
+  resolved by hand.
+- **Notifications.** High-fit jobs (one summary per run, threshold editable), ready for approval and submitted (from
+  `transitions.apply`, in the same transaction), follow-ups (lead days editable), alerts. A unique `dedup_key` makes
+  each one once-only. Email copies are `notification_deliveries` rows: claimed before sending, 4xx and connection
+  errors retried at 1 min, 5 min, 30 min and 2 h, 5xx and rejected logins fail at once (in-app alert, not emailed),
+  rows abandoned mid-send are retried after 10 minutes with the same Message-ID. Email settings live in the server
+  environment; the UI shows only a masked address.
 

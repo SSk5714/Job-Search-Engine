@@ -128,6 +128,26 @@ class SearchConfig(Base, Timestamped):
     cron: Mapped[str | None] = mapped_column(String(64))
     allow_overlap: Mapped[bool] = mapped_column(Boolean, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Phase 5: scheduling. `cron` is evaluated in `timezone`; the scheduler keeps `next_run_at`.
+    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Berlin", server_default="Europe/Berlin")
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    paused_reason: Mapped[str | None] = mapped_column(Text)  # set when repeated failures pause the schedule
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # failures before this don't count
+
+
+class ScheduleDispatch(Base):
+    """One row per due time of a schedule. The unique key makes the scheduler safe to run twice."""
+
+    __tablename__ = "schedule_dispatches"
+    __table_args__ = (UniqueConstraint("config_id", "due_at", name="uq_schedule_dispatch_due"),)
+    id: Mapped[uuid.UUID] = pk()
+    config_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("search_configs.id"), index=True)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[str] = mapped_column(String(24))  # started | skipped_overlap | failed_to_start
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("search_runs.id"))
+    detail: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class SearchRun(Base, Timestamped):
@@ -401,6 +421,17 @@ class HealthCheck(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
+class Heartbeat(Base):
+    """Liveness of the scheduler and the monitor; each one checks the other's row."""
+
+    __tablename__ = "heartbeats"
+    component: Mapped[str] = mapped_column(String(32), primary_key=True)  # scheduler | monitor
+    beat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    interval_s: Mapped[int] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+
 class Notification(Base, Timestamped):
     __tablename__ = "notifications"
     __table_args__ = (
@@ -410,6 +441,7 @@ class Notification(Base, Timestamped):
             unique=True,
             postgresql_where=text("alert_key IS NOT NULL AND resolved_at IS NULL"),
         ),
+        Index("uq_notifications_dedup", "dedup_key", unique=True, postgresql_where=text("dedup_key IS NOT NULL")),
     )
     id: Mapped[uuid.UUID] = pk()
     kind: Mapped[str] = mapped_column(String(32))  # alert | high_fit | ready_for_review | follow_up | submitted
@@ -422,6 +454,38 @@ class Notification(Base, Timestamped):
     alert_key: Mapped[str | None] = mapped_column(String(128))
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Phase 5: alert details (every alert says what, where, why and what to do) and dedup for events
+    dedup_key: Mapped[str | None] = mapped_column(String(160))
+    component: Mapped[str | None] = mapped_column(String(64))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    likely_cause: Mapped[str | None] = mapped_column(Text)
+    remediation: Mapped[str | None] = mapped_column(Text)
+    workflow_paused: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    link: Mapped[str | None] = mapped_column(String(255))  # in-app path, e.g. /review?id=...
+    context: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    occurrences: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[str | None] = mapped_column(String(16))  # monitor (condition cleared) | user
+
+
+class NotificationDelivery(Base, Timestamped):
+    """Outbound copies (email). In-app needs no delivery; it is the notification row itself."""
+
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (UniqueConstraint("notification_id", "channel", name="uq_delivery_per_channel"),
+                      Index("ix_deliveries_due", "status", "next_attempt_at"))
+    id: Mapped[uuid.UUID] = pk()
+    notification_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("notifications.id", ondelete="CASCADE"))
+    channel: Mapped[str] = mapped_column(String(16))  # email
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending | sending | sent | failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    notification: Mapped[Notification] = relationship()
 
 
 class AppSetting(Base):

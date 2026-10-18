@@ -1,7 +1,7 @@
 import csv
 import io
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -21,6 +21,7 @@ from jobpilot.documents import service as documents
 from jobpilot.domain import approvals, transitions
 from jobpilot.domain.errors import DomainError, NotFound
 from jobpilot.domain.states import Actor, State
+from jobpilot.notify import Finding, raise_alert
 
 router = APIRouter(prefix="/applications", tags=["applications"], dependencies=[Depends(current_user)])
 
@@ -244,6 +245,20 @@ def submit(app_id: uuid.UUID, request: Request, db: Session = Depends(get_db)):
             db.rollback()
             attempt = db.get(m.SubmissionAttempt, attempt.id)
             attempt.status, attempt.result = "unknown", "Internal error during submission; check the portal"
+            attempt.finished_at = datetime.now(UTC)
+            db.add(m.ErrorEvent(component="browser", severity="critical", task_id=attempt.id,
+                                code="submission_crashed", message=attempt.result,
+                                context={"application_id": str(app_id)}))
+            transitions.apply(db, app_id, State.NEEDS_MANUAL_INPUT, Actor.ORCHESTRATOR,
+                              "submission crashed — check before retrying")
+            raise_alert(db, Finding(
+                key=f"submission-unknown:{app_id}", severity="critical", component="submission",
+                task_id=attempt.id, title="A submission crashed midway",
+                summary="The browser stopped during submission, so it is unclear whether the form was sent.",
+                likely_cause="Browser crash, timeout or a server restart during submission",
+                remediation="Check the employer's portal or your email, then record whether it arrived "
+                            "(Application Review). It will not retry on its own.",
+                workflow_paused=True, link=f"/review?id={app_id}"))
             db.commit()
             raise
     return {"attempt": _attempt_out(db.get(m.SubmissionAttempt, attempt.id)), **_detail(db, _get(db, app_id))}

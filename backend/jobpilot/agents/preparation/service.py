@@ -20,6 +20,7 @@ from jobpilot.agents.preparation import browser
 from jobpilot.agents.preparation.fields import FieldSpec, classify, propose
 from jobpilot.config import get_settings
 from jobpilot.db import models as m
+from jobpilot.notify import Finding, raise_alert, resolve_alert
 from jobpilot.documents import factbook
 from jobpilot.documents.service import storage_root
 from jobpilot.domain import approvals, transitions
@@ -68,6 +69,19 @@ def _set_manual(db: Session, app: m.Application, url: str, reason: str, extra: d
     transitions.apply(db, app.id, State.AWAITING_USER_REVIEW, Actor.ORCHESTRATOR, f"manual application: {reason}")
 
 
+def _browser_failed(db: Session, app: m.Application, url: str, exc: Exception):
+    """Record a browser failure in its own transaction (the caller's work is rolled back) and stop."""
+    from jobpilot.db.session import SessionLocal
+
+    with SessionLocal() as side:
+        side.add(m.ErrorEvent(component="browser", severity="warning", code=type(exc).__name__[:64],
+                              message=str(exc)[:1000], context={"application_id": str(app.id), "url": url}))
+        side.commit()
+    raise DomainError("browser_failed", "The browser could not load or read the application page "
+                      f"({type(exc).__name__}). Nothing was changed; try again, or apply on the site yourself.",
+                      status_code=502)
+
+
 def prepare(db: Session, app_id: uuid.UUID, apply_url: str | None = None) -> m.Application:
     app = db.scalar(select(m.Application).where(m.Application.id == app_id).with_for_update())
     if app is None:
@@ -98,6 +112,8 @@ def prepare(db: Session, app_id: uuid.UUID, apply_url: str | None = None) -> m.A
         first = browser.inspect_form(url, shot)
     except browser.BrowserBlocked as e:
         raise DomainError("blocked", str(e), status_code=422)
+    except Exception as e:  # browser crash or timeout: logged for the monitor, nothing changed
+        _browser_failed(db, app, url, e)
     if first.human_needed or not first.fields:
         why = {"captcha": "The page shows a CAPTCHA", "login": "The page requires signing in"}.get(
             first.human_needed or "", "No application form was found on that page" +
@@ -115,7 +131,12 @@ def prepare(db: Session, app_id: uuid.UUID, apply_url: str | None = None) -> m.A
         if prop.value is not None and not prop.needs_manual:
             fills[spec.key] = (spec.kind, prop.value)
     files = _doc_files(db, app)
-    snap = browser.inspect_form(url, shot, fill=fills, files=files)
+    try:
+        snap = browser.inspect_form(url, shot, fill=fills, files=files)
+    except browser.BrowserBlocked as e:
+        raise DomainError("blocked", str(e), status_code=422)
+    except Exception as e:
+        _browser_failed(db, app, url, e)
 
     for old in db.scalars(select(m.FormField).where(m.FormField.application_id == app.id)).all():
         db.delete(old)
@@ -157,10 +178,10 @@ def _active_attempt(db: Session, app_id) -> m.SubmissionAttempt | None:
 
 
 def _mark_submitted(db: Session, app: m.Application, attempt: m.SubmissionAttempt) -> None:
-    transitions.apply(db, app.id, State.SUBMITTED, Actor.ORCHESTRATOR,
-                      f"submission confirmed ({attempt.mode}{', ref ' + attempt.result if attempt.result else ''})")
     due = date.today() + timedelta(days=get_settings().follow_up_days)
     app.next_follow_up = due
+    transitions.apply(db, app.id, State.SUBMITTED, Actor.ORCHESTRATOR,
+                      f"submission confirmed ({attempt.mode}{', ref ' + attempt.result if attempt.result else ''})")
     db.add(m.FollowUp(application_id=app.id, due_on=due, note="Check for a reply"))
 
 
@@ -220,9 +241,13 @@ def run_browser_submission(db: Session, app: m.Application, attempt: m.Submissio
         db.add(m.ErrorEvent(component="submission", severity="critical", task_id=attempt.id,
                             code="outcome_unknown", message=result.detail[:1000],
                             context={"application_id": str(app.id), "url": result.final_url}))
-        db.add(m.Notification(kind="alert", severity="critical",
-                               title=f"Check your application to {app.job.company}",
-                               body=result.detail, alert_key=f"submission-unknown:{app.id}"))
+        raise_alert(db, Finding(
+            key=f"submission-unknown:{app.id}", severity="critical", component="submission", task_id=attempt.id,
+            title=f"Check your application to {app.job.company}", summary=result.detail,
+            likely_cause="The portal did not show a clear confirmation or error after submitting",
+            remediation="Check your email or the employer's portal, then tell JobPilot whether it arrived "
+                        "(Application Review). It will not retry on its own.",
+            workflow_paused=True, link=f"/review?id={app.id}", context={"url": result.final_url}))
     else:
         app.last_action = f"submission not sent: {result.detail[:200]}"
     db.flush()
@@ -236,6 +261,7 @@ def confirm_outcome(db: Session, app_id: uuid.UUID, submitted: bool, note: str |
                                                           m.SubmissionAttempt.status == "unknown"))
     if app is None or attempt is None:
         raise DomainError("nothing_to_confirm", "There is no submission with an unknown outcome")
+    resolve_alert(db, f"submission-unknown:{app_id}", by="user")
     attempt.status = "succeeded" if submitted else "failed"
     attempt.result = ("confirmed by you" if submitted else "not received (confirmed by you)") + \
         (f": {note[:200]}" if note else "")

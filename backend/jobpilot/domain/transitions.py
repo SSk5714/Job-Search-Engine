@@ -185,6 +185,10 @@ def apply(
         )
     )
     db.flush()
+    if to_state in (State.AWAITING_USER_REVIEW, State.SUBMITTED):
+        from jobpilot.notify import on_transition  # same transaction: no transition without its notification
+
+        on_transition(db, app, to_state.value)
     return app
 
 
