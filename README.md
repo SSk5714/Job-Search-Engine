@@ -116,6 +116,8 @@ To try it from the app, set `JOBPILOT_BROWSER_ALLOW_PRIVATE_HOSTS=true` (local a
 
 Latest results: [docs/test-results/phase-6.md](docs/test-results/phase-6.md).
 
+New to the code? Start with [docs/learn](docs/learn/README.md): architecture, code flow, diagrams, database schema, security, technology, libraries and commands.
+
 ## Configuration
 
 | Variable | Required | Purpose |
