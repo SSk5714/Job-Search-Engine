@@ -48,8 +48,10 @@ def test_restore_drill_brings_back_identical_data(api):
     next(root.rglob("*.pdf")).unlink()
     assert _table_digest() != before_rows
 
+    folder_id = root.stat().st_ino
     out = backup.restore(b.name)
     reset_engine()
+    assert root.stat().st_ino == folder_id  # restored in place: works when the folder is a mounted volume
     assert _table_digest() == before_rows
     assert _doc_hashes() == before_docs
     assert out["safety_backup"].endswith("pre_restore")

@@ -195,27 +195,30 @@ def restore(name: str) -> dict:
     s = get_settings()
     verify(name)
     b = _find(name)
-    safety = create("pre_restore")
-    # database: drop everything in the public schema, then restore inside one transaction
-    reset_engine()
-    with SessionLocal() as db:
-        db.execute(text("DROP SCHEMA public CASCADE"))
-        db.execute(text("CREATE SCHEMA public"))
-        db.commit()
-    reset_engine()
-    _run([s.pg_restore_path, "--no-owner", "--no-privileges", "--single-transaction", "--exit-on-error",
-          f"--dbname={_libpq_url()}", str(b.path / "database.dump")])
-    # documents: extract next to the live folder, then swap
+    # Unpack the documents first: if the archive is bad, nothing has been touched yet.
     docs = Path(s.documents_dir)
-    docs.parent.mkdir(parents=True, exist_ok=True)
+    docs.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".restore-", dir=docs.parent))
-    with tarfile.open(b.path / "documents.tar.gz") as tar:
-        _safe_extract(tar, staging)
-    old = docs.parent / f".pre-restore-documents-{datetime.now(UTC):%Y%m%dT%H%M%S}"
-    if docs.exists():
-        docs.rename(old)
-    staging.rename(docs)
-    shutil.rmtree(old, ignore_errors=True)  # it is inside the pre_restore backup
+    try:
+        with tarfile.open(b.path / "documents.tar.gz") as tar:
+            _safe_extract(tar, staging)
+        safety = create("pre_restore")
+        # database: drop everything in the public schema, then restore inside one transaction
+        reset_engine()
+        with SessionLocal() as db:
+            db.execute(text("DROP SCHEMA public CASCADE"))
+            db.execute(text("CREATE SCHEMA public"))
+            db.commit()
+        reset_engine()
+        _run([s.pg_restore_path, "--no-owner", "--no-privileges", "--single-transaction", "--exit-on-error",
+              f"--dbname={_libpq_url()}", str(b.path / "database.dump")])
+        # documents: replace the folder's contents in place (it is often a mounted volume and cannot be renamed)
+        for child in docs.iterdir():
+            shutil.rmtree(child) if child.is_dir() and not child.is_symlink() else child.unlink()
+        for child in staging.iterdir():
+            shutil.move(str(child), str(docs / child.name))
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     with SessionLocal() as db:
         counts = _counts(db)
         mismatched = {t: (counts[t], b.manifest["row_counts"].get(t)) for t in COUNTED
