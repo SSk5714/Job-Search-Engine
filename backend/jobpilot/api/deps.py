@@ -40,8 +40,16 @@ def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(get_settings().secret_key, salt="jp-session")
 
 
-def make_session_token(user_id: str) -> str:
-    return _serializer().dumps({"uid": user_id})
+_DUMMY_HASH = _hasher.hash("timing-equaliser-not-a-password")
+
+
+def verify_or_dummy(hashed: str | None, pw: str) -> bool:
+    """Same work whether or not the user exists, so timing does not reveal usernames."""
+    return verify_password(hashed or _DUMMY_HASH, pw) and hashed is not None
+
+
+def make_session_token(user: m.User) -> str:
+    return _serializer().dumps({"uid": str(user.id), "sv": user.session_version})
 
 
 def current_user(request: Request, db: Session = Depends(get_db)) -> m.User:
@@ -53,8 +61,8 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> m.User:
     except (BadSignature, SignatureExpired):
         raise DomainError("unauthenticated", "Session expired; sign in again", status_code=401)
     user = db.get(m.User, data.get("uid"))
-    if user is None:
-        raise DomainError("unauthenticated", "Unknown session", status_code=401)
+    if user is None or data.get("sv") != user.session_version:
+        raise DomainError("unauthenticated", "Your session has ended; sign in again", status_code=401)
     return user
 
 

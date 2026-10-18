@@ -191,6 +191,67 @@ def _follow_ups(db: Session, today: date) -> int:
     return made
 
 
+def _scheduled_backup(db: Session, now: datetime) -> dict:
+    """Daily backup at JOBPILOT_BACKUP_AT (Berlin time), once per day."""
+    from zoneinfo import ZoneInfo
+
+    from jobpilot.ops import backup
+
+    at = get_settings().backup_at
+    if not at:
+        return {"disabled": True}
+    local = now.astimezone(ZoneInfo("Europe/Berlin"))
+    h, mi = (int(x) for x in at.split(":"))
+    due = local.replace(hour=h, minute=mi, second=0, microsecond=0)
+    if local < due:
+        return {}
+    done = db.scalar(select(m.Backup.id).where(m.Backup.kind == "scheduled", m.Backup.status.in_(["ok", "running"]),
+                                               m.Backup.started_at >= due.astimezone(UTC)).limit(1))
+    if done:
+        return {}
+    failures_today = db.scalar(select(m.Backup.id).where(m.Backup.kind == "scheduled", m.Backup.status == "failed",
+                                                         m.Backup.started_at >= now - timedelta(minutes=30)).limit(1))
+    if failures_today:
+        return {"waiting": "retry after a recent failure"}
+    try:
+        b = backup.create("scheduled")
+    except Exception as e:
+        raise_alert(db, Finding(
+            key="backup:failed", severity="critical", component="backup", title="The daily backup failed",
+            summary=f"{type(e).__name__}: {e}"[:800],
+            likely_cause="pg_dump missing or wrong version, disk full, or the backup folder is not writable",
+            remediation="Run `python -m jobpilot.ops backup` in the API container to see the error; check free "
+                        "disk space and JOBPILOT_BACKUP_DIR. It retries in 30 minutes.", link="/settings"))
+        db.commit()
+        return {"failed": str(e)[:200]}
+    resolve_alert(db, "backup:failed")
+    db.commit()
+    return {"created": b.name}
+
+
+RETENTION_DAYS = {"idempotency_keys": 7, "login_attempts": 30, "error_events": 90, "health_checks": 90,
+                  "resolved_notifications": 180}
+
+
+def _housekeeping(db: Session, now: datetime) -> dict:
+    """Prune operational records past their retention. Never touches applications, jobs or documents."""
+    from sqlalchemy import delete
+
+    out = {}
+    for name, model, col, extra in (
+            ("idempotency_keys", m.IdempotencyKey, m.IdempotencyKey.created_at, None),
+            ("login_attempts", m.LoginAttempt, m.LoginAttempt.at, None),
+            ("error_events", m.ErrorEvent, m.ErrorEvent.at, None),
+            ("health_checks", m.HealthCheck, m.HealthCheck.at, None),
+            ("resolved_notifications", m.Notification, m.Notification.resolved_at, m.Notification.resolved_at.is_not(None))):
+        q = delete(model).where(col < now - timedelta(days=RETENTION_DAYS[name]))
+        if extra is not None:
+            q = q.where(extra)
+        out[name] = db.execute(q).rowcount
+    db.commit()
+    return {k: v for k, v in out.items() if v}
+
+
 def _watch_monitor(db: Session, now: datetime) -> str:
     hb, age = heartbeat_age(db, "monitor", now)
     factor = app_settings.get(db, "monitor").heartbeat_missed_factor
@@ -231,6 +292,8 @@ def tick(now: datetime | None = None, enqueue: Enqueue | None = None, sender=Non
                                ("paused", lambda: _pause_failing(db, now)),
                                ("follow_ups", lambda: _follow_ups(db, now.date())),
                                ("monitor", lambda: _watch_monitor(db, now)),
+                               ("backup", lambda: _scheduled_backup(db, now)),
+                               ("housekeeping", lambda: _housekeeping(db, now) if now.minute < 2 else {}),
                                ("emails", lambda: delivery.deliver_due(db, now, sender))):
                 db.expire_all()  # runs execute in other sessions; never act on cached rows
                 try:

@@ -6,6 +6,7 @@ import { dateTime } from "@/lib/format";
 import { ErrorBox, Loading, errorText, useLoad } from "@/components/ui";
 import { MatchingSettings } from "@/components/MatchingSettings";
 import { NotificationSettings } from "@/components/NotificationSettings";
+import { AccountSettings, BackupCard, UsageCard } from "@/components/OpsSettings";
 
 const SECTIONS: { category: string; title: string; hint: string }[] = [
   { category: "contact", title: "Contact", hint: "Shown on your documents. Never sent to Claude." },
@@ -204,12 +205,15 @@ export default function SettingsPage() {
       <div className="page-head">
         <div>
           <h1>Settings & Health</h1>
-          <p className="sub">Your verified profile is the only source for scores and, later, for generated documents.</p>
+          <p className="sub">Your verified profile is the only source for scores and documents. Below: matching, notifications, usage, backups, account and system health.</p>
         </div>
       </div>
       <ProfileEditor />
       <MatchingSettings />
       <NotificationSettings />
+      <UsageCard />
+      <BackupCard />
+      <AccountSettings />
       <Health />
     </>
   );

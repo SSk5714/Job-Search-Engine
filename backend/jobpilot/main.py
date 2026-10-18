@@ -12,12 +12,14 @@ from jobpilot.api import (
     routes_dashboard,
     routes_jobs,
     routes_notifications,
+    routes_ops,
     routes_search,
     routes_settings,
 )
 from jobpilot.api.deps import csrf_protect
 from jobpilot.config import get_settings
 from jobpilot.domain.errors import DomainError
+from jobpilot.security import HardeningMiddleware, check_settings
 
 logging.basicConfig(level=logging.INFO, format='{"level":"%(levelname)s","logger":"%(name)s","msg":"%(message)s"}')
 
@@ -42,7 +44,11 @@ async def lifespan(app: FastAPI):
 
 def create_app(run_bootstrap: bool = True) -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="JobPilot Europe API", version="0.1.0", lifespan=lifespan)
+    check_settings(settings)  # raises in production when the secret or admin password is weak
+    docs = settings.api_docs if settings.api_docs is not None else settings.env != "production"
+    app = FastAPI(title="JobPilot Europe API", version="1.0.0", lifespan=lifespan,
+                  docs_url="/docs" if docs else None, redoc_url=None, openapi_url="/openapi.json" if docs else None)
+    app.add_middleware(HardeningMiddleware, max_bytes=settings.max_request_bytes)
     app.state.run_bootstrap = run_bootstrap
     app.add_middleware(
         CORSMiddleware,
@@ -64,7 +70,7 @@ def create_app(run_bootstrap: bool = True) -> FastAPI:
     deps = [Depends(csrf_protect)]
     for r in (routes_auth_profile.auth, routes_auth_profile.router, routes_search.router, routes_jobs.router,
               routes_applications.router, routes_dashboard.router, routes_settings.router,
-              routes_notifications.router):
+              routes_notifications.router, routes_ops.router):
         app.include_router(r, prefix="/api/v1", dependencies=deps)
     return app
 

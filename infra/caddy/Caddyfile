@@ -1,0 +1,15 @@
+{$JOBPILOT_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+	# keep API docs and internals off the internet
+	@internal path /docs* /openapi.json /redoc*
+	respond @internal 404
+	reverse_proxy web:3000
+	log {
+		output stdout
+		format json
+	}
+}

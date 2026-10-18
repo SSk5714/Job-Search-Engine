@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from jobpilot.db import models as m
 from jobpilot.documents import service as documents
-from jobpilot.documents.schema import CVContent, LetterContent
+from jobpilot.documents.schema import CVContent
 from jobpilot.domain import transitions
 from jobpilot.domain.states import Actor, State
 from tests.conftest import FakeProvider, approved_job, load_test_profile

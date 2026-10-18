@@ -46,6 +46,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="spacer" />
         <button
           className="btn small logout"
+          title="Ends your session on every device"
           onClick={async () => {
             await api.logout().catch(() => undefined);
             window.location.href = "/login";

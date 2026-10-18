@@ -1,0 +1,29 @@
+# Server deployment: HTTPS with automatic certificates (Caddy) in front of the web app.
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml --env-file .env up -d --build
+# Needs JOBPILOT_DOMAIN in .env and DNS pointing to this server; ports 80 and 443 open.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    environment:
+      JOBPILOT_DOMAIN: ${JOBPILOT_DOMAIN:?set JOBPILOT_DOMAIN in .env}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports: ["80:80", "443:443"]
+    depends_on: [web]
+    restart: unless-stopped
+
+  api:
+    ports: !reset []  # reachable only inside the compose network
+    environment:
+      JOBPILOT_COOKIE_SECURE: "true"
+      JOBPILOT_CORS_ORIGINS: '["https://${JOBPILOT_DOMAIN}"]'
+
+  web:
+    ports: !reset []
+
+volumes:
+  caddy_data:
+  caddy_config:

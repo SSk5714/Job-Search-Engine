@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import zipfile
 from collections import Counter, defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, select, text
@@ -402,11 +402,50 @@ def deliveries(c: Ctx) -> list[Finding]:
     return out
 
 
+def backups(c: Ctx) -> list[Finding]:
+    s = get_settings()
+    if not s.backup_at:
+        return [Finding(f"{P}backup:off", "info", "backup", "Daily backups are turned off",
+                        "JOBPILOT_BACKUP_AT is empty, so nothing backs up your data automatically.",
+                        "Set JOBPILOT_BACKUP_AT (e.g. 03:15) and copy the backup folder off the server regularly.")]
+    last = c.db.scalar(select(m.Backup).where(m.Backup.status == "ok", m.Backup.kind.in_(["scheduled", "manual"]))
+                       .order_by(m.Backup.started_at.desc()).limit(1))
+    first_user = c.db.scalar(select(func.min(m.User.created_at)))
+    age_ref = last.started_at if last else first_user
+    if age_ref is not None and c.now - age_ref > timedelta(hours=26):
+        return [Finding(f"{P}backup:stale", "warning", "backup", "No recent backup",
+                        ("Last successful backup " + _ago(c.now, last.started_at) + " ago.") if last else
+                        "No backup has been made yet.",
+                        "Check that the scheduler is running and the backup folder is writable; make one now with "
+                        "`python -m jobpilot.ops backup` or the button in Settings & Health.",
+                        likely_cause="Scheduler stopped, or backups keep failing", link="/settings")]
+    return []
+
+
+def ai_budget(c: Ctx) -> list[Finding]:
+    from jobpilot.domain import settings as app_settings
+
+    budget = app_settings.get(c.db, "ai").daily_budget_usd
+    if not budget:
+        return []
+    start = c.now.replace(hour=0, minute=0, second=0, microsecond=0)
+    spent = float(c.db.scalar(select(func.coalesce(func.sum(m.TaskAttempt.ai_cost_usd), 0))
+                              .where(m.TaskAttempt.created_at >= start)) or 0)
+    if spent >= 0.8 * budget:
+        full = spent >= budget
+        return [Finding(f"{P}ai-budget", "warning" if full else "info", "claude_api",
+                        "Daily Claude budget used up" if full else "Daily Claude budget almost used",
+                        f"${spent:.2f} of ${budget:.2f} spent today (UTC).",
+                        "Nothing breaks: rule-based matching and the template writer take over. Raise the budget "
+                        "in Settings & Health if you want more Claude evaluations today.")]
+    return []
+
+
 CHECKS = [("database", database), ("queue", queue), ("scheduler", scheduler), ("schedules", schedules),
           ("stalled_runs", stalled_runs), ("failed_runs", failed_runs), ("repeated_failures", repeated_failures),
           ("error_spike", error_spike), ("claude_api", claude_api), ("browser", browser),
           ("documents", documents), ("listings", listings), ("stuck_applications", stuck_applications),
-          ("duplicates", duplicates), ("deliveries", deliveries)]
+          ("duplicates", duplicates), ("deliveries", deliveries), ("backups", backups), ("ai_budget", ai_budget)]
 
 # alert-key prefix owned by each check, so a check that errored never closes its own alerts
 OWNS = {"database": ["db:"], "queue": ["queue:"], "scheduler": ["heartbeat:scheduler"],
@@ -415,4 +454,4 @@ OWNS = {"database": ["db:"], "queue": ["queue:"], "scheduler": ["heartbeat:sched
         "error_spike": ["error-spike"], "claude_api": ["claude:"], "browser": ["browser"],
         "documents": ["document:"], "listings": ["listing-closed:"], "stuck_applications": ["stuck:"],
         "duplicates": ["dup-submit:", "submit-stuck:", "submit-unknown:", "dup-app:"],
-        "deliveries": ["delivery:"]}
+        "deliveries": ["delivery:"], "backups": ["backup:"], "ai_budget": ["ai-budget"]}

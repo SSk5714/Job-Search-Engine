@@ -55,10 +55,14 @@ def _config_id():
         return db.scalar(select(m.SearchConfig.id))
 
 
-def test_healthy_system_has_no_alerts(api):
+def test_healthy_system_has_no_alerts(api, monkeypatch):
+    monkeypatch.setenv("JOBPILOT_BACKUP_AT", "03:15")  # backups on, and the system is younger than a day
+    get_settings.cache_clear()
     verify_facts(api)
     run_mock_search(api)
     out = service.run_once()
+    monkeypatch.undo()
+    get_settings.cache_clear()
     assert out["findings"] == 0, out
     assert set(out["status"].values()) == {"ok"}
     with SessionLocal() as db:

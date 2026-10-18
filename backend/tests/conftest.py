@@ -2,16 +2,18 @@
 so partial unique indexes and transactions behave exactly as in production."""
 
 import os
+import tempfile
 import uuid
 
 os.environ.setdefault("JOBPILOT_DATABASE_URL", "postgresql+psycopg://postgres@localhost:5432/jobpilot_test")
 os.environ["JOBPILOT_REDIS_URL"] = ""
 os.environ.setdefault("JOBPILOT_SECRET_KEY", "test-secret-key-0123456789")
-import tempfile  # noqa: E402
 
 os.environ.setdefault("JOBPILOT_DOCUMENTS_DIR", tempfile.mkdtemp(prefix="jobpilot-docs-"))
 os.environ.setdefault("JOBPILOT_BROWSER_ALLOW_PRIVATE_HOSTS", "true")  # the mock portal runs on 127.0.0.1
 os.environ.setdefault("JOBPILOT_BROWSER_TIMEOUT_S", "10")
+os.environ.setdefault("JOBPILOT_BACKUP_AT", "")  # backup tests turn it on explicitly
+os.environ.setdefault("JOBPILOT_BACKUP_DIR", tempfile.mkdtemp(prefix="jobpilot-backups-"))
 
 import pytest
 from alembic import command

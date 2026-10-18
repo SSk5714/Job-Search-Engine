@@ -51,6 +51,35 @@ class User(Base, Timestamped):
     id: Mapped[uuid.UUID] = pk()
     username: Mapped[str] = mapped_column(String(80), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    # Phase 6: bumping this ends every session (sign-out everywhere, password change)
+    session_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LoginAttempt(Base):
+    """For rate limiting sign-in. Pruned after 30 days."""
+
+    __tablename__ = "login_attempts"
+    __table_args__ = (Index("ix_login_attempts_user_at", "username", "at"),)
+    id: Mapped[uuid.UUID] = pk()
+    username: Mapped[str] = mapped_column(String(80))
+    ip: Mapped[str | None] = mapped_column(String(64))
+    success: Mapped[bool] = mapped_column(Boolean)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class Backup(Base):
+    """One row per backup the system made or restored (files live in JOBPILOT_BACKUP_DIR)."""
+
+    __tablename__ = "backups"
+    id: Mapped[uuid.UUID] = pk()
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    kind: Mapped[str] = mapped_column(String(16))  # scheduled | manual | pre_restore
+    status: Mapped[str] = mapped_column(String(16))  # running | ok | failed | verified
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
+    detail: Mapped[dict] = mapped_column(JSONB, default=dict)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 # ── Profile ─────────────────────────────────────────────────────────────────

@@ -4,7 +4,8 @@ version = "0.1.0"
 description = "JobPilot Europe — orchestrated job-application pipeline (backend, workers, monitor)"
 requires-python = ">=3.12"
 dependencies = [
-  "fastapi==0.115.14",
+  "fastapi==0.143.5",
+  "starlette==1.8.0",
   "uvicorn[standard]==0.32.1",
   "sqlalchemy==2.0.55",
   "alembic==1.14.1",

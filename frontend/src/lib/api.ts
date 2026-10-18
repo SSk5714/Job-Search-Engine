@@ -312,6 +312,19 @@ export interface HealthDetails {
   recent_errors?: { component: string; severity: string; code: string; message: string; at: string; run_id: string | null }[];
 }
 
+export interface UsageT {
+  days: number;
+  ai: { per_day: { date: string; calls: number; tokens_in: number; tokens_out: number; cost_usd: number }[];
+        per_agent: { agent: string; calls: number; tokens_in: number; tokens_out: number; cost_usd: number }[];
+        total_cost_usd: number; today_cost_usd: number; month_cost_usd: number; daily_budget_usd: number;
+        budget_used_pct: number | null; api_key_configured: boolean };
+  searches: { runs: Record<string, number>; new_jobs: number };
+  applications: { funnel: Record<string, number>; submitted_in_period: number };
+}
+
+export interface BackupT { name: string; kind: string; status: string; size_bytes: number | null; started_at: string;
+  finished_at: string | null; detail: Record<string, unknown> }
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public details: unknown = {}) {
     super(message);
@@ -409,6 +422,12 @@ export const api = {
   markSubmitted: (id: string, note?: string) => request<ApplicationDetail>("POST", `/applications/${id}/mark-submitted`, { note }, true),
   evidenceUrl: (id: string, file: string) => `${BASE}/applications/${id}/evidence?file=${encodeURIComponent(file)}`,
   exportProfile: () => request<{ format: string; facts: Fact[] }>("GET", "/profile/export"),
+  changePassword: (current_password: string, new_password: string) =>
+    request<{ ok: boolean }>("POST", "/auth/password", { current_password, new_password }),
+  usage: (days = 30) => request<UsageT>("GET", `/usage?days=${days}`),
+  backups: () => request<{ schedule: string; keep: number; last_ok: BackupT | null; history: BackupT[]; restore_hint: string }>(
+    "GET", "/backups"),
+  backupNow: () => request<BackupT>("POST", "/backups", {}),
   setSchedule: (id: string, c: Cadence) => request<SearchConfig>("PUT", `/search-configs/${id}/schedule`, c),
   resumeSchedule: (id: string) => request<SearchConfig>("POST", `/search-configs/${id}/resume`, {}),
   stopRun: (id: string) => request<SearchRun>("POST", `/search-runs/${id}/stop`, {}),

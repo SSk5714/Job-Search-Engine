@@ -1,91 +1,94 @@
-# Local stack: docker compose -f infra/docker-compose.yml --env-file .env up --build
-# Web UI on http://localhost:3000, API on http://localhost:8000 (docs at /docs).
+# JobPilot Europe: full stack.
+#   cp .env.example .env   # then set JOBPILOT_SECRET_KEY, JOBPILOT_ADMIN_PASSWORD, POSTGRES_PASSWORD
+#   docker compose -f infra/docker-compose.yml --env-file .env up -d --build
+# Web UI on http://localhost:3000. Ports are bound to 127.0.0.1 only; for a server, add
+# docker-compose.prod.yml (HTTPS via Caddy). See docs/deployment.md.
+
+x-backend: &backend
+  image: jobpilot-backend:local
+  build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
+  env_file: ../.env
+  environment: &backend-env
+    JOBPILOT_ENV: ${JOBPILOT_ENV:-production}
+    JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/jobpilot
+    JOBPILOT_REDIS_URL: redis://redis:6379/0
+    JOBPILOT_PUBLIC_BASE_URL: ${JOBPILOT_PUBLIC_BASE_URL:-http://localhost:3000}
+  volumes: [documents:/app/storage/documents, backups:/app/storage/backups]
+  restart: unless-stopped
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: jobpilot
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jobpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: jobpilot
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U jobpilot"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
+    command: redis-server --save "" --appendonly no  # only a task queue; all state is in PostgreSQL
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       retries: 10
+    restart: unless-stopped
 
   api:
-    build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
-    env_file: ../.env
-    environment:
-      JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
-      JOBPILOT_REDIS_URL: redis://redis:6379/0
-    volumes: [documents:/app/storage/documents]
+    <<: *backend
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
-    ports: ["8000:8000"]
+    ports: ["127.0.0.1:8000:8000"]
 
-  worker:
-    build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
-    env_file: ../.env
-    environment:
-      JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
-      JOBPILOT_REDIS_URL: redis://redis:6379/0
+  worker:  # runs searches and the scheduler tick (incl. daily backups, so it needs the backups volume)
+    <<: *backend
     command: celery -A jobpilot.worker worker -l info --concurrency 2
-    volumes: [documents:/app/storage/documents]
     depends_on:
-      api: { condition: service_started }
-    restart: unless-stopped
+      api: { condition: service_healthy }
 
-  beat:  # sends the orchestrator's scheduler tick once a minute (scheduled searches, follow-ups, emails)
-    build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
-    env_file: ../.env
-    environment:
-      JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
-      JOBPILOT_REDIS_URL: redis://redis:6379/0
+  beat:  # sends the orchestrator's scheduler tick once a minute
+    <<: *backend
     command: celery -A jobpilot.worker beat -l info -s /tmp/celerybeat-schedule
+    volumes: []
     depends_on:
-      api: { condition: service_started }
-    restart: unless-stopped
+      api: { condition: service_healthy }
 
   monitor:  # independent: own loop and heartbeat, no Celery; keeps working when the queue or scheduler fail
-    build: { context: .., dockerfile: infra/docker/backend.Dockerfile }
-    env_file: ../.env
+    <<: *backend
     environment:
-      JOBPILOT_DATABASE_URL: postgresql+psycopg://jobpilot:${POSTGRES_PASSWORD:-jobpilot}@postgres:5432/jobpilot
-      JOBPILOT_REDIS_URL: redis://redis:6379/0
+      <<: *backend-env
       JOBPILOT_MONITOR_FALLBACK_LOG: /app/storage/monitor/fallback.jsonl
     command: python -m jobpilot.monitor
     volumes: [documents:/app/storage/documents:ro, monitorlog:/app/storage/monitor]
     depends_on:
-      postgres: { condition: service_healthy }
-    restart: unless-stopped
-
-  mock-portal:  # demo/test employer portal; remove in real use
-    image: python:3.12-slim
-    working_dir: /portal
-    volumes: [../mock-portal:/portal:ro]
-    command: sh -c "pip install -q fastapi==0.115.14 uvicorn==0.32.1 python-multipart && uvicorn mock_portal:app --host 0.0.0.0 --port 8100"
-    ports: ["8100:8100"]
-    profiles: [demo]
+      api: { condition: service_healthy }
 
   web:
     build:
       context: ..
       dockerfile: infra/docker/frontend.Dockerfile
       args: { JOBPILOT_API_URL: "http://api:8000" }
-    depends_on: [api]
-    ports: ["3000:3000"]
+    depends_on:
+      api: { condition: service_healthy }
+    ports: ["127.0.0.1:3000:3000"]
+    restart: unless-stopped
+
+  mock-portal:  # demo/test employer portal only (docker compose --profile demo ...)
+    image: python:3.12-slim-bookworm
+    working_dir: /portal
+    volumes: [../mock-portal:/portal:ro]
+    command: sh -c "pip install -q fastapi==0.143.5 starlette==1.8.0 uvicorn==0.32.1 python-multipart==0.0.20 && uvicorn mock_portal:app --host 0.0.0.0 --port 8100"
+    ports: ["127.0.0.1:8100:8100"]
+    profiles: [demo]
 
 volumes:
-  pgdata:
-  monitorlog:  # monitor's fallback log when the database is unreachable
-  documents:  # generated CVs and cover letters: back this up with the database
+  pgdata:       # the database: back up with `python -m jobpilot.ops backup`, not by copying this volume
+  documents:    # generated CVs, cover letters, evidence screenshots
+  backups:      # daily backups; copy them off the server (docs/operations.md)
+  monitorlog:   # monitor's fallback log when the database is unreachable

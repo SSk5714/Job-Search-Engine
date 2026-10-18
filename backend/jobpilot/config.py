@@ -54,6 +54,19 @@ class Settings(BaseSettings):
     email_from: str | None = None
     notify_email_to: str | None = None  # your address; kept in the environment, never in the repository
 
+    # Phase 6: production readiness
+    env: str = Field(default="development", pattern="^(development|production)$")
+    api_docs: bool | None = None  # /docs and /openapi.json; default: on in development, off in production
+    max_request_bytes: int = 2_000_000
+    login_max_failures: int = 5  # per username within the window, then wait
+    login_window_minutes: int = 15
+    login_global_max_failures: int = 50  # all usernames together (password spraying)
+    backup_dir: str = "./storage/backups"
+    backup_keep: int = 14  # newest scheduled backups kept
+    backup_at: str = "03:15"  # daily, Europe/Berlin; empty to disable scheduled backups
+    pg_dump_path: str = "pg_dump"
+    pg_restore_path: str = "pg_restore"
+
     @property
     def email_configured(self) -> bool:
         return bool(self.smtp_host and self.email_from and self.notify_email_to)

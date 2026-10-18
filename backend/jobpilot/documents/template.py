@@ -91,7 +91,7 @@ class TemplateGenerator:
     # CV
     def cv(self) -> CVContent:
         latest = self._latest_job()
-        title = self._title(latest) if latest else None
+        self._title(latest) if latest else None
         promo = self._f("employment", "promoted_to", latest) if latest else None
         headline_fact = promo or (self._f("employment", "first_title", latest) if latest else None)
         headline = Claim(text=headline_fact.value, fact_ids=[headline_fact.id]) if headline_fact else \
