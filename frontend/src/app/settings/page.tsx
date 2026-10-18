@@ -50,6 +50,19 @@ function ProfileEditor() {
     } catch (e) { setErr(errorText(e)); }
   }
 
+  async function verifyAll(rows: Fact[], label: string) {
+    const ids = rows.filter((f) => f.id && f.value && !f.verified).map((f) => f.id!) as string[];
+    if (!ids.length) return;
+    if (!confirm(`Mark ${ids.length} fact${ids.length > 1 ? "s" : ""} in ${label} as verified?\n\n` +
+      "Only do this after reading them: verified facts are what your scores, CVs and cover letters are built from.")) return;
+    setErr(null);
+    try {
+      const r = await api.verifyMany(ids);
+      setMsg(`${r.changed} fact${r.changed === 1 ? "" : "s"} verified. Regenerate documents in Application Review to use them.`);
+      reload();
+    } catch (e) { setErr(errorText(e)); }
+  }
+
   async function verify(f: Fact, v: boolean) {
     if (!f.id) return;
     setErr(null);
@@ -81,11 +94,15 @@ function ProfileEditor() {
                 const data = JSON.parse(await file.text());
                 if (!confirm(`Replace your profile with ${data.facts?.length ?? 0} facts from ${file.name}? It becomes a new version; you verify each fact afterwards.`)) return;
                 await api.importProfile(data);
-                setMsg("Imported as a new version. Nothing is verified yet: check each fact and press Verify.");
+                setMsg("Imported as a new version. Nothing is verified yet: read each section, then press Verify section (or Verify on single facts).");
                 reload();
               } catch (x) { setErr(errorText(x)); } finally { e.target.value = ""; }
             }} />
           </label>
+          {!dirty && data.verified_count < data.filled_count && (
+            <button className="btn small" onClick={() => verifyAll(facts, "your whole profile")}>
+              Verify all ({data.filled_count - data.verified_count})</button>
+          )}
           <button className="btn primary" disabled={!dirty} onClick={save}>{dirty ? "Save changes" : "Saved"}</button>
         </div>
       </div>
@@ -99,10 +116,16 @@ function ProfileEditor() {
           <div key={s.category} style={{ marginTop: 18 }}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <strong>{s.title}</strong>
+              <span className="row">
+              {!dirty && rows.some(({ f }) => f.id && f.value && !f.verified) && (
+                <button className="btn small" onClick={() => verifyAll(rows.map(({ f }) => f), s.title)}>
+                  Verify section ({rows.filter(({ f }) => f.id && f.value && !f.verified).length})</button>
+              )}
               <button className="btn small" onClick={() => {
                 setFacts([...facts, { category: s.category, entry: null, key: s.category === "employment" ? "responsibility" : "", value: "", context: s.category === "skill" ? "unspecified" : null, source_note: null, verified: false }]);
                 setDirty(true);
               }}>Add</button>
+              </span>
             </div>
             <p className="small muted" style={{ marginBottom: 6 }}>{s.hint}</p>
             <div className="list">

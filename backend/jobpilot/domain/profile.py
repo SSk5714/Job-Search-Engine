@@ -145,6 +145,24 @@ def set_verified(db: Session, fact_id, verified: bool) -> m.ProfileFact:
     return fact
 
 
+def set_verified_many(db: Session, fact_ids: list, verified: bool) -> int:
+    """Verify (or unverify) several facts of the current version at once. Empty facts are skipped."""
+    version = current_version(db)
+    facts = db.scalars(select(m.ProfileFact).where(m.ProfileFact.id.in_(fact_ids),
+                                                   m.ProfileFact.version_id == version.id)).all()
+    if len(facts) != len(set(fact_ids)):
+        raise DomainError("not_current_version", "Some facts are not in the current profile version; reload the page")
+    changed = 0
+    for f in facts:
+        if verified and not f.value:
+            continue
+        if f.verified != verified:
+            f.verified = verified
+            changed += 1
+    db.flush()
+    return changed
+
+
 def profile_view(version: m.ProfileVersion) -> ProfileView:
     """Verified facts only. This snapshot is all that matchers (rules or Claude) ever see."""
     skills, elig, langs = {}, {}, {}

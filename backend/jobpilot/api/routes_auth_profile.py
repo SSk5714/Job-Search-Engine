@@ -166,6 +166,19 @@ def verify_fact(fact_id: uuid.UUID, body: VerifyIn, db: Session = Depends(get_db
     return s.fact(fact)
 
 
+class VerifyManyIn(BaseModel):
+    fact_ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    verified: bool = True
+
+
+@router.post("/facts/verify-many")
+def verify_many(body: VerifyManyIn, db: Session = Depends(get_db)):
+    """Confirm several facts at once (e.g. a whole section you have checked). Empty facts are skipped."""
+    changed = profile_svc.set_verified_many(db, body.fact_ids, body.verified)
+    db.commit()
+    return {"changed": changed}
+
+
 @router.get("/versions")
 def versions(db: Session = Depends(get_db)):
     profile = profile_svc.get_profile(db)

@@ -8,6 +8,7 @@ import { ErrorBox, Loading, Score, StateBadge, errorText, useLoad } from "@/comp
 import { DocumentEditor } from "@/components/DocumentEditor";
 import { ApplicationForm } from "@/components/ApplicationForm";
 import { ApprovalPanel } from "@/components/ApprovalPanel";
+import { ApplySteps } from "@/components/ApplySteps";
 
 const STATES = ["approved_for_preparation", "documents_ready", "form_prepared", "awaiting_user_review", "needs_manual_input", "submitted"];
 
@@ -54,6 +55,8 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
           </span>
         </div>
       </section>
+
+      <ApplySteps d={d} />
 
       {!cv && !letter && <p className="notice">No documents yet.</p>}
       {cv && <DocumentEditor appId={id} doc={cv} onSaved={(x) => { setD(x); onChanged(); }} />}

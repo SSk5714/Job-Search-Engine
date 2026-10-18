@@ -376,6 +376,8 @@ export const api = {
       facts: facts.map(({ category, entry, key, value, context, source_note }) => ({ category, entry: entry || null, key, value, context, source_note })),
       note,
     }, true),
+  verifyMany: (fact_ids: string[], verified = true) =>
+    request<{ changed: number }>("POST", "/profile/facts/verify-many", { fact_ids, verified }),
   verifyFact: (id: string, verified: boolean) => request<Fact>("POST", `/profile/facts/${id}/verify`, { verified }),
 
   sources: () => request<Source[]>("GET", "/sources"),

@@ -225,3 +225,19 @@ def test_import_never_marks_new_facts_verified(api):
                                      "facts": [{"category": "skill", "key": "rust", "value": "Rust",
                                                 "context": "learning", "verified": True}]})
     assert r.status_code == 200 and r.json()["verified_count"] == 0
+
+
+def test_verify_many_confirms_a_section_and_skips_empty_facts(api):
+    prof = load_test_profile(api, verify_all=False)
+    contact = [f for f in prof["facts"] if f["category"] == "contact"]
+    r = api.post("/profile/facts/verify-many", {"fact_ids": [f["id"] for f in contact]}, key=None)
+    assert r.status_code == 200
+    after = {f["id"]: f for f in api.get("/profile").json()["facts"]}
+    assert all(after[f["id"]]["verified"] == bool(f["value"]) for f in contact)  # empty ones stay unverified
+    assert r.json()["changed"] == sum(1 for f in contact if f["value"])
+    assert not any(f["verified"] for f in after.values() if f["category"] != "contact")
+    # ids that are not in the current version are refused as a whole
+    import uuid as _uuid
+
+    r = api.post("/profile/facts/verify-many", {"fact_ids": [contact[0]["id"], str(_uuid.uuid4())]}, key=None)
+    assert r.status_code == 409
