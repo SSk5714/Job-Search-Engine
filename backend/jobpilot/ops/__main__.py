@@ -17,7 +17,18 @@ def main() -> int:
     r = sub.add_parser("restore", help="replace the database and documents with a backup")
     r.add_argument("name")
     r.add_argument("--yes", action="store_true", help="confirm: current data is replaced (a safety backup is made)")
+    h = sub.add_parser("alive", help="exit 0 if a component's heartbeat is fresh (container healthchecks)")
+    h.add_argument("component", choices=["scheduler", "monitor"])
     a = p.parse_args()
+    if a.cmd == "alive":
+        from jobpilot.db.heartbeat import age
+        from jobpilot.db.session import SessionLocal
+
+        with SessionLocal() as db:
+            hb, seconds = age(db, a.component)
+        fresh = hb is not None and seconds <= 3 * hb.interval_s
+        print(f"{a.component}: " + (f"last beat {int(seconds)}s ago" if hb else "no heartbeat yet"))
+        return 0 if fresh else 1
     try:
         if a.cmd == "backup":
             b = backup.create("manual")

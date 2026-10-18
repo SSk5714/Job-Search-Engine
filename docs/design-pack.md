@@ -126,6 +126,8 @@ with `Idempotent-Replay: true`, a reused key with a different body returns 422.
 | GET /notifications, GET /notifications/summary, POST /notifications/{id}/read, POST /notifications/read-all, POST /notifications/{id}/retry-delivery | In-app notifications and email retry | 5 ✅ |
 | PUT /search-configs/{id}/schedule, POST /search-configs/{id}/resume, GET /search-configs/{id}/dispatches, POST /search-runs/{id}/stop | Scheduling and recovery | 5 ✅ |
 | GET/PUT /settings/notifications, POST /settings/notifications/test-email, GET/PUT /settings/monitor | Notification preferences, monitor thresholds | 5 ✅ |
+| POST /auth/password, POST /auth/logout (ends all sessions) | Account | 6 ✅ |
+| GET /usage, GET /backups, POST /backups | Usage and cost; backups (restore is CLI-only) | 6 ✅ |
 
 Error shape: `{"error": {"code", "message", "details"}}`. Codes include
 `invalid_transition`, `forbidden_actor`, `guard_failed`, `approval_required`,
@@ -263,4 +265,32 @@ current status.
   errors retried at 1 min, 5 min, 30 min and 2 h, 5xx and rejected logins fail at once (in-app alert, not emailed),
   rows abandoned mid-send are retried after 10 minutes with the same Message-ID. Email settings live in the server
   environment; the UI shows only a masked address.
+
+## 13. Production readiness (as built, Phase 6)
+
+- **Security review.** Findings and fixes, threat table and known limits are in `SECURITY.md`. Fixed: no sign-in
+  limit (now 5 per username and 50 overall per 15 minutes, stored in `login_attempts`); username discovery by timing
+  (dummy Argon2 check); sessions surviving sign-out (cookie carries `users.session_version`; sign-out and password
+  change bump it); no password change; placeholder secrets accepted (production refuses to start); missing security
+  headers and request size limit (`security.py`, `next.config.ts`); API docs exposed (off in production);
+  vulnerable dependencies (Next.js, Starlette, pypdf, pytest, postcss, sharp upgraded; audits in CI).
+- **Backups** (`ops/backup.py`, `python -m jobpilot.ops`). `pg_dump` custom format + `tar.gz` of the documents folder +
+  `manifest.json` (format, schema revision, row counts, SHA-256 per file), written to a dot-prefixed temp folder and
+  renamed when complete. `verify` checks checksums, `pg_restore --list` and archive completeness. `restore` verifies,
+  makes a `pre_restore` backup, drops and recreates the schema, restores in one transaction, swaps the documents folder
+  (archive members checked against traversal and links), then compares row counts. Daily scheduled backup from the
+  scheduler tick, retention of scheduled backups, `backups` table history, monitor alerts for stale or failed backups.
+- **Usage and cost** (`GET /usage`): Claude calls, tokens and cost per day and per agent from `task_attempts`, today
+  and month against the daily budget, searches by status, jobs found, application funnel. Monitor alert at 80 % and
+  100 % of the daily budget.
+- **Housekeeping.** Hourly pruning of idempotency keys (7 days), sign-in attempts (30), error events and health
+  history (90), resolved notifications (180). Workflow data is never pruned.
+- **Deployment.** One image for API, worker, beat and monitor (PostgreSQL 16 client for backups, Chromium, non-root,
+  healthcheck). Compose binds published ports to `127.0.0.1`, requires `POSTGRES_PASSWORD`, defaults to production
+  mode; `docker-compose.prod.yml` adds Caddy with automatic HTTPS and HSTS and unpublishes the app ports.
+  Guides: `docs/deployment.md`, `docs/operations.md`.
+- **CI** (`.github/workflows/ci.yml`): backend (lint, `pip-audit`, all tests on PostgreSQL 16 and Redis 7 service
+  containers), frontend (`npm audit`, typecheck, build), docker (`infra/smoke-test.sh`: build, start the full stack,
+  headers, sign-in, a search through the worker, scheduler and monitor heartbeats, backup, verify, restore drill,
+  sign-in limit).
 
