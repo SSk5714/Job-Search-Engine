@@ -123,6 +123,13 @@ suite (`test_restore_drill_brings_back_identical_data`) and in CI against the re
   `JOBPILOT_BACKUP_KEEP`.
 - **Emails link to localhost**: set `JOBPILOT_PUBLIC_BASE_URL`.
 
+## Real jobs only
+
+The Mock job board (invented companies with `.example` addresses) is off in production and hidden from Job
+Discovery. On start-up, anything it ever added is removed: jobs, applications, CVs and letters, history and
+notifications. Real jobs are never touched. To run the cleanup by hand: `./jp exec api python -m jobpilot.ops
+purge-test-jobs`. To practise with test jobs anyway, set `JOBPILOT_TEST_JOBS=true` in `.env`.
+
 ## Data retention
 
 The scheduler prunes operational records hourly: idempotency keys after 7 days, sign-in attempts after 30, error

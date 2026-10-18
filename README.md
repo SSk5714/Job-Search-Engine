@@ -13,9 +13,17 @@ results, and AI is used only where language understanding helps.
 **Status: all 6 phases complete (production readiness in Phase 6).** See [what works today](#what-works-today)
 and [docs/integrations.md](docs/integrations.md) for what is mocked or pending.
 
-![Job Review](docs/screenshots/04-job-review.png)
+![Jobs](docs/screenshots/21-jobs.png)
 
 ## What works today
+
+**The app has three screens:** **Jobs** (real jobs that match you, each with a short description, the listing link,
+one-click CV and cover letter, Apply and "I applied"), **Search monitor** (what to search for, schedule, last results,
+problems) and **Applied** (every job you applied to, its link, the documents you sent, status and follow-up).
+Profile & settings hold your verified facts. Test jobs from the Mock job board are off in production and removed
+at start-up.
+
+Under the hood:
 
 - Job sources: Bundesagentur für Arbeit, Greenhouse, Lever and Personio adapters, plus a mock board for development
 - **Add job from URL**: API-backed links are fetched; LinkedIn, StepStone, Indeed and XING links are never fetched, so you paste the details

@@ -17,10 +17,20 @@ def main() -> int:
     r = sub.add_parser("restore", help="replace the database and documents with a backup")
     r.add_argument("name")
     r.add_argument("--yes", action="store_true", help="confirm: current data is replaced (a safety backup is made)")
+    sub.add_parser("purge-test-jobs", help="remove every job from the Mock job board, with its documents")
     sub.add_parser("probe-ba", help="check what the Bundesagentur job search answers from this machine")
     h = sub.add_parser("alive", help="exit 0 if a component's heartbeat is fresh (container healthchecks)")
     h.add_argument("component", choices=["scheduler", "monitor"])
     a = p.parse_args()
+    if a.cmd == "purge-test-jobs":
+        from jobpilot.db.session import SessionLocal
+        from jobpilot.ops.purge import purge_test_jobs
+
+        with SessionLocal() as db:
+            out = purge_test_jobs(db)
+            db.commit()
+        print(json.dumps(out))
+        return 0
     if a.cmd == "probe-ba":
         import httpx
 

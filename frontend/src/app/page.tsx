@@ -1,134 +1,135 @@
 "use client";
 
 import Link from "next/link";
-import { api } from "@/lib/api";
-import { REC_LABEL, dateTime } from "@/lib/format";
-import { ErrorBox, Loading, Score, StateBadge, useLoad } from "@/components/ui";
+import { useState } from "react";
+import { api, type MyJob } from "@/lib/api";
+import { date } from "@/lib/format";
+import { ErrorBox, Loading, Score, errorText, useLoad } from "@/components/ui";
+import { ImportJob } from "@/components/ImportJob";
 
-const TILES: { key: keyof import("@/lib/api").Dashboard["counts"]; label: string; href: string; focus?: boolean; alert?: boolean }[] = [
-  { key: "new_jobs", label: "New jobs this week", href: "/jobs" },
-  { key: "high_fit", label: "High fit (75+)", href: "/jobs?min_score=75" },
-  { key: "awaiting_review", label: "Awaiting your review", href: "/review", focus: true },
-  { key: "documents_ready", label: "Documents ready", href: "/tracker?state=documents_ready" },
-  { key: "submitted", label: "Submitted", href: "/tracker?state=submitted" },
-  { key: "follow_ups_due", label: "Follow-ups due (7 days)", href: "/tracker" },
-  { key: "failed_tasks", label: "Failed tasks", href: "/settings", alert: true },
-  { key: "warnings", label: "Open alerts", href: "/notifications", alert: true },
-];
+function DocLinks({ job }: { job: MyJob }) {
+  const docs = job.documents;
+  const cv = docs.cv, letter = docs.cover_letter;
+  if (!cv || !letter) return null;
+  const problems = (cv.problem_count ?? 0) + (letter.problem_count ?? 0);
+  return (
+    <>
+      <a className="btn" href={api.docUrl(job.application_id, cv.id, "pdf")}>CV (PDF)</a>
+      <a className="btn" href={api.docUrl(job.application_id, letter.id, "pdf")}>Cover letter (PDF)</a>
+      <span className="small muted">
+        Word: <a href={api.docUrl(job.application_id, cv.id, "docx")}>CV</a> ·{" "}
+        <a href={api.docUrl(job.application_id, letter.id, "docx")}>letter</a> ·{" "}
+        <Link href={`/review?id=${job.application_id}`}>edit</Link>
+      </span>
+      {problems > 0 && (
+        <div className="warnbox small" style={{ width: "100%" }}>
+          {problems} line{problems > 1 ? "s are" : " is"} not backed by your verified profile
+          {[...(cv.problems ?? []), ...(letter.problems ?? [])].slice(0, 2).map((p) => <div key={p}>· {p}</div>)}
+          <div>Check your <Link href="/settings">profile</Link> (press Verify), then <b>Recreate</b>.</div>
+        </div>
+      )}
+    </>
+  );
+}
 
-export default function DashboardPage() {
-  const { data, error, loading } = useLoad(api.dashboard);
+function JobCard({ job, onChange, onGone }: { job: MyJob; onChange: (j: MyJob) => void; onGone: () => void }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const hasDocs = !!(job.documents.cv && job.documents.cover_letter);
+
+  async function act(name: string, fn: () => Promise<unknown>) {
+    setBusy(name); setError(null);
+    try { await fn(); } catch (e) { setError(errorText(e)); } finally { setBusy(null); }
+  }
+
+  return (
+    <article className="card" style={{ marginBottom: 12 }}>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start", flexWrap: "nowrap" }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{job.title}</h2>
+          <div className="small muted">
+            {job.company}{job.city ? ` · ${job.city}` : ""}{job.work_mode ? ` · ${job.work_mode}` : ""}
+            {job.posted ? ` · posted ${date(job.posted)}` : ""} · {job.source}
+          </div>
+        </div>
+        <Score value={job.score} />
+      </div>
+
+      {job.summary && (
+        <p className="small" style={{ margin: "8px 0 6px" }}>
+          {open ? job.summary : job.summary.slice(0, 220)}{job.summary.length > 220 && !open && "…"}{" "}
+          {job.summary.length > 220 && <button className="btn small" onClick={() => setOpen(!open)}>{open ? "less" : "more"}</button>}
+        </p>
+      )}
+      <div className="small" style={{ marginBottom: 6 }}>
+        {job.matched.map((s) => <span key={s} className="chip ok">{s}</span>)}
+        {job.missing.slice(0, 3).map((s) => <span key={s} className="chip miss">{s}</span>)}
+      </div>
+      {job.warnings.length > 0 && <div className="small" style={{ color: "var(--warn)", marginBottom: 6 }}>⚠ {job.warnings.join(" · ")}</div>}
+
+      <div className="row" style={{ marginTop: 8 }}>
+        <a className="btn" href={job.url} target="_blank" rel="noopener noreferrer nofollow">Job listing ↗</a>
+        {hasDocs ? <DocLinks job={job} /> : null}
+        <button className="btn" disabled={!!busy}
+          onClick={() => act("docs", async () => onChange(await api.makeDocuments(job.application_id)))}>
+          {busy === "docs" ? "Writing…" : hasDocs ? "Recreate CV & letter" : "Create CV & cover letter"}
+        </button>
+        <a className="btn primary" href={job.url} target="_blank" rel="noopener noreferrer nofollow"
+          title="Opens the listing; apply there with your CV and cover letter">Apply ↗</a>
+        <button className="btn" disabled={!!busy} onClick={() => {
+          if (confirm(`Did you apply to ${job.company}? It moves to “Applied” with a reminder to follow up.`)) {
+            act("applied", async () => { await api.markApplied(job.application_id); onGone(); });
+          }
+        }}>I applied ✓</button>
+        <button className="btn small" disabled={!!busy}
+          onClick={() => act("dismiss", async () => { await api.dismissJob(job.application_id); onGone(); })}>Not interested</button>
+      </div>
+      <ErrorBox message={error} />
+    </article>
+  );
+}
+
+export default function JobsPage() {
+  const [weak, setWeak] = useState(false);
+  const { data, error, setData, reload } = useLoad(() => api.myJobs(weak), [weak]);
 
   return (
     <>
       <div className="page-head">
         <div>
-          <h1>Today</h1>
-          <p className="sub">
-            {data?.last_run
-              ? `Last search ${data.last_run.status} · ${dateTime(data.last_run.finished_at ?? data.last_run.started_at)}`
-              : "No search has run yet"}
-          </p>
+          <h1>Jobs for you</h1>
+          <p className="sub">Real, open jobs that match your verified profile, best first.</p>
         </div>
-        <Link className="btn primary" href="/discovery">Run a search</Link>
+        <div className="row">
+          <label className="row small" style={{ display: "flex" }}>
+            <input type="checkbox" style={{ width: "auto" }} checked={weak} onChange={(e) => setWeak(e.target.checked)} />
+            Show weaker matches
+          </label>
+          <ImportJob onImported={() => reload()} />
+        </div>
       </div>
+      <p className="small muted" style={{ marginTop: -10 }}>
+        Found a job on LinkedIn or StepStone? Use <b>Add job from URL</b>: paste the link and its text, and it gets a score,
+        CV and cover letter like the others.
+      </p>
       <ErrorBox message={error} />
-      {loading && !data ? <Loading /> : null}
-      {data && (
+      {!data ? <Loading /> : data.jobs.length === 0 ? (
+        <p className="notice">
+          No matching jobs yet. Open <Link href="/monitor">Search monitor</Link> and press <b>Search now</b>.
+          Scores use only facts you verified in your <Link href="/settings">profile</Link>.
+        </p>
+      ) : (
         <>
-          <div className="grid tiles" style={{ marginBottom: 20 }}>
-            {TILES.map((t) => (
-              <Link key={t.key} href={t.href} className={`card tile${t.focus ? " focus" : ""}${t.alert && data.counts[t.key] > 0 ? " alert" : ""}`} style={{ color: "inherit", textDecoration: "none" }}>
-                <div className="n">{data.counts[t.key]}</div>
-                <div className="l">{t.label}</div>
-              </Link>
-            ))}
-          </div>
-
-          <div className="grid two">
-            <section className="card">
-              <h2>Best matches waiting for a decision</h2>
-              {data.top_jobs.length === 0 ? (
-                <p className="notice">
-                  No high-fit jobs yet. Scores only use <Link href="/settings">verified profile facts</Link>, so verify your skills first.
-                </p>
-              ) : (
-                <div className="list">
-                  {data.top_jobs.map((j) => (
-                    <Link key={j.job_id} href={`/jobs?focus=${j.job_id}`} className="row" style={{ justifyContent: "space-between", color: "inherit" }}>
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{j.title}</div>
-                        <div className="small muted">{j.company} · {REC_LABEL[j.recommendation]}</div>
-                      </div>
-                      <Score value={j.score} />
-                    </Link>
-                  ))}
-                </div>
-              )}
-              <div className="sep" />
-              <h2>Awaiting your review</h2>
-              {data.review_queue.length === 0 ? (
-                <p className="small muted">Nothing needs your approval right now.</p>
-              ) : (
-                <div className="list">
-                  {data.review_queue.map((a) => (
-                    <Link key={a.id} href={`/review?id=${a.id}`} className="row" style={{ justifyContent: "space-between", color: "inherit" }}>
-                      <span>{a.role} · <span className="muted">{a.company}</span></span>
-                      <StateBadge state={a.state} />
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="card">
-              <h2>Needs attention</h2>
-              {(data.open_alerts ?? []).length === 0 ? (
-                <p className="small"><span className="dot ok" />No open alerts</p>
-              ) : (
-                <div className="list small">
-                  {data.open_alerts!.map((a) => (
-                    <Link key={a.id} href={a.link ?? "/notifications"} style={{ color: "inherit" }}>
-                      <span className={`dot ${a.severity === "critical" ? "down" : a.severity === "warning" ? "warn" : "ok"}`} />
-                      <strong>{a.title}</strong>{a.workflow_paused && <span className="badge warn" style={{ marginLeft: 6 }}>paused</span>}
-                      {a.remediation && <div className="muted">{a.remediation}</div>}
-                    </Link>
-                  ))}
-                  <Link href="/notifications" className="small">All alerts →</Link>
-                </div>
-              )}
-              {(data.upcoming_follow_ups ?? []).length > 0 && (
-                <>
-                  <div className="sep" />
-                  <h2>Upcoming follow-ups</h2>
-                  <div className="list small">
-                    {data.upcoming_follow_ups!.map((f) => (
-                      <Link key={f.application_id} href="/tracker" className="row" style={{ justifyContent: "space-between", color: "inherit" }}>
-                        <span>{f.title} · <span className="muted">{f.company}</span></span><span>{f.due}</span>
-                      </Link>
-                    ))}
-                  </div>
-                </>
-              )}
-              <div className="sep" />
-              <h2>Recent errors</h2>
-              {data.recent_errors.length === 0 ? (
-                <p className="small"><span className="dot ok" />No errors in the last 7 days</p>
-              ) : (
-                <div className="list small">
-                  {data.recent_errors.map((e, i) => (
-                    <div key={i}>
-                      <span className={`dot ${e.severity === "critical" ? "down" : "warn"}`} />
-                      <strong>{e.component}</strong> · {e.code}
-                      <div className="muted">{e.message}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="sep" />
-              <Link href="/settings" className="small">Service health and sources →</Link>
-            </section>
-          </div>
+          <p className="small muted" style={{ marginTop: 0 }}>
+            {data.jobs.length} job{data.jobs.length > 1 ? "s" : ""}
+            {!weak && data.hidden_weak > 0 && ` · ${data.hidden_weak} weaker or ineligible matches hidden`}
+          </p>
+          {data.jobs.map((j) => (
+            <JobCard key={j.application_id} job={j}
+              onChange={(nj) => setData({ ...data, jobs: data.jobs.map((x) => (x.application_id === nj.application_id ? nj : x)) })}
+              onGone={() => setData({ ...data, jobs: data.jobs.filter((x) => x.application_id !== j.application_id) })} />
+          ))}
         </>
       )}
     </>

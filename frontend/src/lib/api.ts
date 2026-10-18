@@ -322,6 +322,17 @@ export interface UsageT {
   applications: { funnel: Record<string, number>; submitted_in_period: number };
 }
 
+export interface MyDoc { id: string; version: number; ready: boolean; problems: string[]; problem_count: number }
+
+export interface MyJob {
+  application_id: string; job_id: string; state: State;
+  title: string; company: string; city: string | null; country: string | null; work_mode: string | null;
+  posted: string | null; found: string; url: string; source: string; summary: string;
+  score: number | null; recommendation: string | null; why: string; matched: string[]; missing: string[];
+  warnings: string[]; documents: Partial<Record<"cv" | "cover_letter", MyDoc>>;
+  applied_on: string | null; outcome: string | null; next_follow_up: string | null;
+}
+
 export interface BackupT { name: string; kind: string; status: string; size_bytes: number | null; started_at: string;
   finished_at: string | null; detail: Record<string, unknown> }
 
@@ -424,6 +435,13 @@ export const api = {
   markSubmitted: (id: string, note?: string) => request<ApplicationDetail>("POST", `/applications/${id}/mark-submitted`, { note }, true),
   evidenceUrl: (id: string, file: string) => `${BASE}/applications/${id}/evidence?file=${encodeURIComponent(file)}`,
   exportProfile: () => request<{ format: string; facts: Fact[] }>("GET", "/profile/export"),
+  myJobs: (include_weak = false) => request<{ jobs: MyJob[]; hidden_weak: number }>("GET", `/my/jobs?include_weak=${include_weak}`),
+  makeDocuments: (appId: string) => request<MyJob>("POST", `/my/jobs/${appId}/documents`, {}),
+  markApplied: (appId: string, note?: string) => request<MyJob>("POST", `/my/jobs/${appId}/applied`, { note }),
+  dismissJob: (appId: string) => request<{ ok: boolean }>("POST", `/my/jobs/${appId}/dismiss`, {}),
+  myHistory: () => request<MyJob[]>("GET", "/my/history"),
+  updateHistory: (appId: string, patch: { outcome?: string | null; next_follow_up?: string | null }) =>
+    request<MyJob>("PATCH", `/my/history/${appId}`, patch),
   changePassword: (current_password: string, new_password: string) =>
     request<{ ok: boolean }>("POST", "/auth/password", { current_password, new_password }),
   usage: (days = 30) => request<UsageT>("GET", `/usage?days=${days}`),

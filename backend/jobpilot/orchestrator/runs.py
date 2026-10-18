@@ -21,6 +21,7 @@ from jobpilot.agents.discovery.adapters import (
     resolve_url,
 )
 from jobpilot.agents.discovery.http import SourceHTTPError
+from jobpilot.config import get_settings
 from jobpilot.db import models as m
 from jobpilot.db.session import SessionLocal
 from jobpilot.domain import transitions
@@ -40,7 +41,7 @@ def sync_sources(db: Session) -> None:
         src = existing.get(code)
         if src is None:
             db.add(m.JobSource(code=code, name=name, access_mode=mode, implemented=cls is not None,
-                               enabled=code == "mock", notes=notes))
+                               enabled=code == "mock" and get_settings().test_jobs_enabled, notes=notes))
         else:
             src.name, src.access_mode, src.implemented, src.notes = name, mode, cls is not None, notes
     db.flush()
@@ -151,7 +152,8 @@ def execute_run(run_id: uuid.UUID) -> dict:
         per_source: dict[str, dict] = {}
         ok_sources = failed_sources = 0
 
-        for code in config.source_codes or ["mock"]:
+        codes = [c for c in (config.source_codes or []) if get_settings().test_jobs_enabled or not c.startswith("mock")]
+        for code in codes or ["ba_jobsuche"]:
             source = db.scalar(select(m.JobSource).where(m.JobSource.code == code))
             agent_run = m.AgentRun(run_id=run.id, agent="discovery", subject=code)
             db.add(agent_run)

@@ -6,13 +6,9 @@ import { usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 
 const NAV = [
-  { href: "/", label: "Dashboard" },
-  { href: "/discovery", label: "Job Discovery" },
-  { href: "/jobs", label: "Job Review" },
-  { href: "/review", label: "Application Review" },
-  { href: "/tracker", label: "Tracker" },
-  { href: "/notifications", label: "Notifications" },
-  { href: "/settings", label: "Settings & Health" },
+  { href: "/", label: "Jobs" },
+  { href: "/monitor", label: "Search monitor" },
+  { href: "/history", label: "Applied" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -36,14 +32,16 @@ export function Shell({ children }: { children: React.ReactNode }) {
           return (
             <Link key={n.href} href={n.href} className={`nav-link${active ? " active" : ""}`}>
               {n.label}
-              {n.href === "/notifications" && counts.unread > 0 && (
-                <span className={`badge ${counts.critical ? "bad" : "accent"}`} style={{ marginLeft: 6 }}
-                  aria-label={`${counts.unread} unread`}>{counts.unread}</span>
+              {n.href === "/monitor" && counts.critical > 0 && (
+                <span className="badge bad" style={{ marginLeft: 6 }}
+                  aria-label={`${counts.critical} problems`}>!</span>
               )}
             </Link>
           );
         })}
         <div className="spacer" />
+        <Link href="/settings" className={`nav-link${path.startsWith("/settings") ? " active" : ""}`}
+          style={{ fontSize: 13 }}>Profile &amp; settings</Link>
         <button
           className="btn small logout"
           title="Ends your session on every device"

@@ -59,7 +59,8 @@ def test_invalid_transition_is_refused_and_changes_nothing(api, db):
     job = _first_job(api)
     app_id = job["application"]["id"]
     r = api.post(f"/applications/{app_id}/transitions", {"to_state": "submitted"})
-    assert r.status_code == 409 and r.json()["error"]["code"] == "invalid_transition"
+    # only the dedicated "I applied" action may record a submission; the generic endpoint is refused
+    assert r.status_code in (403, 409) and r.json()["error"]["code"] in ("invalid_transition", "forbidden_actor")
     assert api.get(f"/applications/{app_id}").json()["state"] == "classified"
 
 

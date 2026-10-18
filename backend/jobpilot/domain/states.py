@@ -28,6 +28,9 @@ class State(StrEnum):
 class Actor(StrEnum):
     USER = "user"
     ORCHESTRATOR = "orchestrator"
+    # "I applied on the employer's site myself": only the dedicated /my/jobs/{id}/applied action uses it,
+    # so the generic transition endpoint can never jump to submitted.
+    USER_RECORD = "user_record"
 
 
 TERMINAL = {State.CLOSED, State.REJECTED, State.WITHDRAWN, State.EXPIRED}
@@ -47,21 +50,26 @@ class Rule:
 U = frozenset({Actor.USER})
 O = frozenset({Actor.ORCHESTRATOR})
 UO = frozenset({Actor.USER, Actor.ORCHESTRATOR})
+R = frozenset({Actor.USER_RECORD})
+APPLIED_YOURSELF = Rule(State.SUBMITTED, R, "no_open_submission")
 
 _MAIN: dict[State, list[Rule]] = {
     State.DISCOVERED: [Rule(State.CLASSIFIED, O, "has_evaluation")],
     State.CLASSIFIED: [
         Rule(State.APPROVED_FOR_PREPARATION, U, "job_available"),
         Rule(State.REJECTED, UO),
+        APPLIED_YOURSELF,
     ],
-    State.APPROVED_FOR_PREPARATION: [Rule(State.DOCUMENTS_READY, O, "documents_verified")],
+    State.APPROVED_FOR_PREPARATION: [Rule(State.DOCUMENTS_READY, O, "documents_verified"), APPLIED_YOURSELF],
     State.DOCUMENTS_READY: [
         Rule(State.FORM_PREPARED, O, "form_fields_resolved"),
         Rule(State.AWAITING_USER_REVIEW, O, "manual_apply_source"),
+        APPLIED_YOURSELF,
     ],
-    State.FORM_PREPARED: [Rule(State.AWAITING_USER_REVIEW, O)],
+    State.FORM_PREPARED: [Rule(State.AWAITING_USER_REVIEW, O), APPLIED_YOURSELF],
     State.AWAITING_USER_REVIEW: [
         Rule(State.SUBMITTED, O, "submission_succeeded"),
+        APPLIED_YOURSELF,
         Rule(State.APPROVED_FOR_PREPARATION, U),  # sent back for document changes
     ],
     State.SUBMITTED: [Rule(State.FOLLOW_UP, UO, "follow_up_set"), Rule(State.CLOSED, U, "outcome_set")],
@@ -83,8 +91,11 @@ def rules_from(state: State) -> list[Rule]:
     return rules
 
 
-def find_rule(from_state: State, to_state: State) -> Rule | None:
-    for rule in rules_from(from_state):
-        if rule.to == to_state:
-            return rule
-    return None
+def find_rule(from_state: State, to_state: State, actor: Actor | None = None) -> Rule | None:
+    """The rule for this move; when several exist, the one this actor may use."""
+    matches = [r for r in rules_from(from_state) if r.to == to_state]
+    if actor is not None:
+        for r in matches:
+            if actor in r.actors:
+                return r
+    return matches[0] if matches else None

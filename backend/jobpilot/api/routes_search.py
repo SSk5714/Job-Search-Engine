@@ -20,9 +20,13 @@ from jobpilot.schemas.agents import SearchFilters
 router = APIRouter(tags=["search"], dependencies=[Depends(current_user)])
 
 
+def _visible(code: str) -> bool:
+    return get_settings().test_jobs_enabled or not code.startswith("mock")
+
+
 @router.get("/sources")
 def list_sources(db: Session = Depends(get_db)):
-    return [s.source(x) for x in db.scalars(select(m.JobSource).order_by(m.JobSource.code)).all()]
+    return [s.source(x) for x in db.scalars(select(m.JobSource).order_by(m.JobSource.code)).all() if _visible(x.code)]
 
 
 class SourcePatch(BaseModel):
@@ -58,7 +62,7 @@ def _config_out(c: m.SearchConfig, db: Session | None = None) -> dict:
 class ConfigIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     filters: SearchFilters = Field(default_factory=SearchFilters)
-    source_codes: list[str] = Field(default_factory=lambda: ["mock"])
+    source_codes: list[str] = Field(default_factory=lambda: ["ba_jobsuche"])
     source_options: dict[str, dict] = Field(default_factory=dict)
     cron: str | None = Field(default=None, max_length=64)
     allow_overlap: bool = False
@@ -66,7 +70,7 @@ class ConfigIn(BaseModel):
 
 
 def _check_sources(codes: list[str]) -> None:
-    unknown = [c for c in codes if c not in SOURCES]
+    unknown = [c for c in codes if c not in SOURCES or not _visible(c)]
     if unknown:
         raise DomainError("validation_error", f"Unknown sources: {', '.join(unknown)}", status_code=422)
     manual = [c for c in codes if SOURCES[c][2] is None]

@@ -12,13 +12,22 @@ def test_every_main_path_step_is_allowed():
 
 
 def test_no_state_can_skip_to_submitted():
+    """Neither the user (generic transitions) nor the orchestrator can skip ahead to submitted. Only the
+    dedicated "I applied on the employer's site" action (Actor.USER_RECORD) records a self-made application."""
     for s in State:
-        if s != State.AWAITING_USER_REVIEW:
-            assert find_rule(s, State.SUBMITTED) is None, s
+        for actor in (Actor.USER, Actor.ORCHESTRATOR):
+            rule = find_rule(s, State.SUBMITTED, actor)
+            allowed = rule is not None and actor in rule.actors
+            assert allowed == (s == State.AWAITING_USER_REVIEW and actor == Actor.ORCHESTRATOR), (s, actor)
+        rec = find_rule(s, State.SUBMITTED, Actor.USER_RECORD)
+        if rec is not None and Actor.USER_RECORD in rec.actors:
+            assert rec.guard == "no_open_submission"
+            assert s in (State.CLASSIFIED, State.APPROVED_FOR_PREPARATION, State.DOCUMENTS_READY,
+                         State.FORM_PREPARED, State.AWAITING_USER_REVIEW)
 
 
 def test_only_orchestrator_marks_submitted_and_only_with_guard():
-    rule = find_rule(State.AWAITING_USER_REVIEW, State.SUBMITTED)
+    rule = find_rule(State.AWAITING_USER_REVIEW, State.SUBMITTED, Actor.ORCHESTRATOR)
     assert rule.actors == frozenset({Actor.ORCHESTRATOR})
     assert rule.guard == "submission_succeeded"
 

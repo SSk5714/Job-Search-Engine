@@ -18,6 +18,7 @@ JOBPILOT_ADMIN_PASSWORD=$ADMIN_PW
 POSTGRES_PASSWORD=$(python3 -c "import secrets;print(secrets.token_hex(16))")
 JOBPILOT_SCHEDULER_INTERVAL_S=10
 JOBPILOT_MONITOR_INTERVAL_S=10
+JOBPILOT_TEST_JOBS=true
 EOF
 cp "$ENVF" .env
 DC="docker compose -p $P -f infra/docker-compose.yml --env-file .env"

@@ -83,7 +83,14 @@ def _outcome_set(db: Session, app: m.Application) -> str | None:
     return None if app.outcome else "Record the outcome first"
 
 
+def _no_open_submission(db: Session, app: m.Application) -> str | None:
+    open_ = db.scalar(select(m.SubmissionAttempt.status).where(
+        m.SubmissionAttempt.application_id == app.id, m.SubmissionAttempt.status.in_(["pending", "unknown"])))
+    return "A JobPilot submission is still open for this job; record its outcome first" if open_ else None
+
+
 GUARDS: dict[str, Guard] = {
+    "no_open_submission": _no_open_submission,
     "has_evaluation": _has_evaluation,
     "job_available": _job_available,
     "documents_verified": _documents_verified,
@@ -155,7 +162,7 @@ def apply(
             raise DomainError("invalid_transition", f"From {current} you can only return to {prev}",
                               {"from": current, "to": to_state, "allowed": [prev] if prev else []})
     else:
-        rule = find_rule(current, to_state)
+        rule = find_rule(current, to_state, actor)
         if rule is None:
             raise DomainError("invalid_transition", f"Cannot move from {current} to {to_state}",
                               {"from": current, "to": to_state})

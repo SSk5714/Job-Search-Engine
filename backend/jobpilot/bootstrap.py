@@ -30,12 +30,16 @@ def bootstrap(db: Session) -> None:
         ensure_user(db, settings.admin_username, settings.admin_password)
     if db.scalar(select(m.CandidateProfile).limit(1)) is None:
         save_version(db, SEED_FACTS, note="Seed from brief — all facts unverified", seed=True)
+    if not settings.test_jobs_enabled:
+        from jobpilot.ops.purge import purge_test_jobs
+
+        purge_test_jobs(db)  # real jobs only: remove anything the Mock job board ever added
     if db.scalar(select(m.SearchConfig).limit(1)) is None:
         db.add(m.SearchConfig(
             name="Germany — all tracks",
             filters={"countries": ["DE"], "cities": [], "keywords": [], "tracks": ["A", "B", "C", "D"],
                      "work_modes": [], "employment_types": [], "seniority": [], "max_age_days": 30},
-            source_codes=["mock"],
+            source_codes=["mock"] if settings.test_jobs_enabled else ["ba_jobsuche"],
         ))
     db.commit()
 

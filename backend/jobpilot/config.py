@@ -64,8 +64,13 @@ class Settings(BaseSettings):
     backup_dir: str = "./storage/backups"
     backup_keep: int = 14  # newest scheduled backups kept
     backup_at: str = "03:15"  # daily, Europe/Berlin; empty to disable scheduled backups
+    test_jobs: bool | None = None  # the Mock job board; default: on in development (tests), off in production
     pg_dump_path: str = "pg_dump"
     pg_restore_path: str = "pg_restore"
+
+    @property
+    def test_jobs_enabled(self) -> bool:
+        return self.test_jobs if self.test_jobs is not None else self.env != "production"
 
     @property
     def email_configured(self) -> bool:
