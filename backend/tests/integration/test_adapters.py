@@ -172,3 +172,27 @@ def test_ba_reports_forbidden_when_every_version_is_refused(fake_sources):
     with pytest.raises(SourceHTTPError) as e:
         BAJobsucheAdapter().fetch(SearchFilters(countries=["DE"], keywords=["Android"]), {"max_pages": 1})
     assert e.value.code == "forbidden" and "also tried /pc/v4/jobs" in str(e.value)
+
+
+def test_ba_unknown_answer_format_is_an_error_not_zero_jobs(fake_sources):
+    from jobpilot.agents.discovery.http import SourceHTTPError
+
+    for v in ("v4", "v6"):
+        fake_sources.overrides[f"https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/{v}/jobs"] = \
+            [httpx.Response(200, json={"results": []})] * 5
+    with pytest.raises(SourceHTTPError) as e:
+        BAJobsucheAdapter().fetch(SearchFilters(countries=["DE"], keywords=["Android"]), {"max_pages": 1})
+    assert e.value.code == "unexpected_format" and "results" in str(e.value)
+
+
+def test_ba_skips_a_version_with_an_unknown_format(fake_sources):
+    base = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
+    fake_sources.overrides[base] = [httpx.Response(200, json={"results": []})] * 10
+    jobs = BAJobsucheAdapter().fetch(SearchFilters(countries=["DE"], keywords=["Android"]), {"max_pages": 1})
+    assert len(jobs) == 2
+
+
+def test_ba_empty_result_is_zero_jobs(fake_sources):
+    base = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs"
+    fake_sources.overrides[base] = [httpx.Response(200, json={"maxErgebnisse": 0})] * 10
+    assert BAJobsucheAdapter().fetch(SearchFilters(countries=["DE"], keywords=["Android"]), {"max_pages": 1}) == []

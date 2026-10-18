@@ -45,8 +45,11 @@ def main() -> int:
                 headers = dict(HEADERS) | ({"User-Agent": ua} if ua else {})
                 try:
                     r = httpx.get(f"{BASE}{path}", params=params, headers=headers, timeout=20)
-                    n = len((r.json() or {}).get("stellenangebote") or []) if r.status_code == 200 else "-"
-                    print(f"{path:14} {label:18} HTTP {r.status_code}  jobs: {n}  {'' if r.status_code == 200 else r.text[:120]}")
+                    body = r.json() if r.status_code == 200 else {}
+                    n = len(body.get("stellenangebote") or []) if isinstance(body, dict) else "-"
+                    extra = (f"total: {body.get('maxErgebnisse')}  keys: {', '.join(sorted(body)[:8])}"
+                             if isinstance(body, dict) and body else r.text[:120])
+                    print(f"{path:14} {label:18} HTTP {r.status_code}  jobs: {n}  {extra}")
                     ok = ok or r.status_code == 200
                 except Exception as e:
                     print(f"{path:14} {label:18} {type(e).__name__}: {e}"[:200])

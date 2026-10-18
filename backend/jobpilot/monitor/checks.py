@@ -181,6 +181,8 @@ SOURCE_HINTS = {
     "http_404": ("A board or company name no longer exists", "Fix the company/board names in the search settings."),
     "http_429": ("Rate limited by the source", "Search less often."),
     "timeout": ("The source is slow or down", "Usually temporary; it retries next run."),
+    "unexpected_format": ("The source answered in a format JobPilot does not read", "Run `./jp exec api python -m "
+                          "jobpilot.ops probe-ba` and check for a JobPilot update."),
     "needs_configuration": ("The source needs settings", "Add the company/board names in the search settings."),
 }
 

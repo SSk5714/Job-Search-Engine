@@ -62,6 +62,13 @@ class BAJobsucheAdapter(Adapter):
                 if last is not None:
                     raise SourceHTTPError(e.code, f"{e} (also tried {', '.join(self._paths[:i])})", e.status) from e
                 raise
+            if not isinstance(data, dict) or not ({"stellenangebote", "maxErgebnisse"} & data.keys()):
+                # answered, but not in the format we read: never report that as "0 jobs found"
+                keys = ", ".join(sorted(data)[:8]) if isinstance(data, dict) else type(data).__name__
+                last = SourceHTTPError("unexpected_format", f"ba_jobsuche: {path} answered in an unknown format ({keys})")
+                if i < len(self._paths) - 1:
+                    continue
+                raise last
             self._paths = [path] + [p for p in self._paths if p != path]
             return data
         raise last or SourceHTTPError("exhausted", "no search endpoint answered")
