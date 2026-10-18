@@ -41,6 +41,28 @@ class ClaudeProvider:
         # The SDK retries connection errors, 408/409/429 and 5xx with backoff.
         self.client = client or anthropic.Anthropic(api_key=api_key, timeout=timeout_s, max_retries=2)
 
+    def chat(self, *, system: str, messages: list[dict], max_tokens: int = 1500) -> tuple[str, AIUsage]:
+        """A plain conversation turn: the reply text and what it cost."""
+        try:
+            resp = self.client.messages.create(model=self.model, max_tokens=max_tokens, system=system,
+                                               messages=messages)
+        except anthropic.RateLimitError as e:
+            raise AIError("rate_limited", "Claude API rate limit reached", retryable=True) from e
+        except (anthropic.APITimeoutError, anthropic.APIConnectionError) as e:
+            raise AIError("unreachable", "Claude API timed out or was unreachable", retryable=True) from e
+        except anthropic.AuthenticationError as e:
+            raise AIError("auth_failed", "Claude API key was rejected") from e
+        except anthropic.BadRequestError as e:
+            raise AIError("bad_request", f"Claude API rejected the request: {e.message}"[:300]) from e
+        except anthropic.APIStatusError as e:
+            raise AIError("api_error", f"Claude API error {e.status_code}", retryable=e.status_code >= 500) from e
+        usage = AIUsage(model=self.model, input_tokens=resp.usage.input_tokens, output_tokens=resp.usage.output_tokens,
+                        cost_usd=cost_usd(self.model, resp.usage.input_tokens, resp.usage.output_tokens))
+        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+        if resp.stop_reason == "refusal" or not text:
+            raise AIError("refused", "Claude did not answer this", usage=usage)
+        return text, usage
+
     def structured(self, *, system: str, user: str, schema: type[T], max_tokens: int = 2048) -> AIResult[T]:
         try:
             resp = self.client.messages.parse(

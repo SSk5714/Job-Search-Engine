@@ -334,6 +334,7 @@ export interface MyJob {
   warnings: string[]; documents: Partial<Record<"cv" | "cover_letter", MyDoc>>;
   applied_on: string | null; outcome: string | null; next_follow_up: string | null;
   kind: "job" | "werkstudent" | "praktikum" | "abschlussarbeit"; target_company: string | null;
+  has_link: boolean; added_by_you: boolean;
 }
 
 export interface BackupT { name: string; kind: string; status: string; size_bytes: number | null; started_at: string;
@@ -439,6 +440,10 @@ export const api = {
   evidenceUrl: (id: string, file: string) => `${BASE}/applications/${id}/evidence?file=${encodeURIComponent(file)}`,
   exportProfile: () => request<{ format: string; facts: Fact[] }>("GET", "/profile/export"),
   myJobs: (include_weak = false) => request<{ jobs: MyJob[]; hidden_weak: number }>("GET", `/my/jobs?include_weak=${include_weak}`),
+  pasteJob: (p: { title: string; company: string; job_text: string; company_details?: string | null;
+    url?: string | null; city?: string | null }) => request<MyJob & { outcome: string }>("POST", "/my/paste", p),
+  ask: (messages: { role: "user" | "assistant"; content: string }[], application_id?: string | null) =>
+    request<{ reply: string; cost_usd: number; model: string }>("POST", "/my/assistant", { messages, application_id: application_id || null }),
   makeDocuments: (appId: string) => request<MyJob>("POST", `/my/jobs/${appId}/documents`, {}),
   markApplied: (appId: string, note?: string) => request<MyJob>("POST", `/my/jobs/${appId}/applied`, { note }),
   dismissJob: (appId: string) => request<{ ok: boolean }>("POST", `/my/jobs/${appId}/dismiss`, {}),

@@ -29,6 +29,9 @@ Under the hood:
 - Student positions and target companies: choose Jobs, Werkstudent, Praktikum or Abschlussarbeit, and list companies
   (BMW, Mercedes-Benz, Bosch …); their openings are searched across Germany and marked ★
 - Indeed, LinkedIn, StepStone and XING: one-click links open your search there (they forbid automated access)
+- **Paste a job**: paste any job description (and what you know about the company) to get a score, CV and cover letter
+- **Ask**: a chat with Claude about your job search or one job; it sees your verified profile, never your contact details
+- Email after each search with the new jobs scoring 60 % or more (threshold adjustable)
 - **Add job from URL**: API-backed links are fetched; LinkedIn, StepStone, Indeed and XING links are never fetched, so you paste the details
 - Claude-assisted matching (`claude-haiku-5-5` by default). Claude extracts skills and requirements with verbatim quotes, mapped to your verified facts; code computes the score and eligibility. Invented facts and quotes are discarded.
 - Per-run and daily AI budgets, token and cost records, and a visible fallback to rule-based scoring

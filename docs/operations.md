@@ -136,6 +136,20 @@ suite (`test_restore_drill_brings_back_identical_data`) and in CI against the re
 If Bundesagentur finds nothing, run `./jp exec api python -m jobpilot.ops probe-ba`: it shows what each search
 version answers and runs one full search (Java, Berlin).
 
+## Email for good matches
+
+Set the `JOBPILOT_SMTP_*`, `JOBPILOT_EMAIL_FROM` and `JOBPILOT_NOTIFY_EMAIL_TO` lines in `.env` (Gmail needs an app
+password), `./jp up -d`, then on Search monitor tick **Email me** and choose the minimum score (default 60 %).
+After each search that finds new jobs at or above it you get one email listing them with score and link.
+**Send a test email** checks the settings.
+
+## Ask (the assistant)
+
+Needs `JOBPILOT_ANTHROPIC_API_KEY`. Claude sees your verified profile facts without contact details and, if you pick
+one, that job's text, match and current documents. Job text is treated as untrusted data. It answers only; it
+cannot change documents or apply. Each answer counts against the daily AI budget. Conversations are kept in your
+browser only.
+
 ## Real jobs only
 
 The Mock job board (invented companies with `.example` addresses) is off in production and hidden from Job

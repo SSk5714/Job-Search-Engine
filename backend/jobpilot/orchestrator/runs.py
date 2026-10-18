@@ -118,22 +118,23 @@ def _notify_high_fit(db: Session, run: m.SearchRun) -> None:
 
     threshold = app_settings.get(db, "notifications").high_fit_min_score
     rows = db.execute(
-        select(m.Job.title, m.Job.company, m.JobMatchEvaluation.score)
+        select(m.Job.title, m.Job.company, m.Job.city, m.Job.url, m.JobMatchEvaluation.score)
         .join(m.Application, m.Application.job_id == m.Job.id)
         .join(m.JobMatchEvaluation, m.JobMatchEvaluation.job_id == m.Job.id)
         .where(m.Job.first_seen_run_id == run.id, m.Application.state == "classified",
                m.JobMatchEvaluation.score >= threshold)
         .order_by(m.JobMatchEvaluation.score.desc())).all()
     seen, top = set(), []
-    for title, company, score in rows:
+    for title, company, city, url, score in rows:
         if (title, company) not in seen:
             seen.add((title, company))
-            top.append(f"{score} · {title} at {company}")
+            top.append(f"{score}% · {title} at {company}{f' ({city})' if city else ''}\n   {url}")
     if not top:
         return
-    notify(db, "high_fit", f"{len(top)} new high-fit job{'s' if len(top) != 1 else ''} to review",
-           "\n".join(top[:5]) + (f"\n…and {len(top) - 5} more" if len(top) > 5 else ""),
-           dedup_key=f"high_fit:{run.id}", link="/jobs", context={"run_id": str(run.id), "count": len(top)})
+    notify(db, "high_fit", f"{len(top)} new job{'s' if len(top) != 1 else ''} matching {threshold}% or more",
+           "\n".join(top[:10]) + (f"\n…and {len(top) - 10} more" if len(top) > 10 else "")
+           + "\n\nCV and cover letter: one click on the Jobs page.",
+           dedup_key=f"high_fit:{run.id}", link="/", context={"run_id": str(run.id), "count": len(top)})
 
 
 def execute_run(run_id: uuid.UUID) -> dict:

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, type SearchConfig, type SearchRun, type Source } from "@/lib/api";
+import { api, type NotificationPrefs, type SearchConfig, type SearchRun, type Source } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import { ErrorBox, Loading, errorText, useLoad } from "@/components/ui";
 import { ScheduleCard } from "@/components/ScheduleCard";
@@ -158,6 +158,65 @@ function SearchSettings({ cfg, sources, onSaved }: { cfg: SearchConfig; sources:
   );
 }
 
+function EmailCard() {
+  const { data, error, setData } = useLoad(api.notificationPrefs);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [score, setScore] = useState<string | null>(null);
+  if (!data) return error ? <ErrorBox message={error} /> : null;
+  const s = score ?? String(data.high_fit_min_score);
+
+  async function save(p: Partial<NotificationPrefs>) {
+    setErr(null); setMsg(null);
+    try {
+      const kinds = p.email_enabled ? Array.from(new Set([...(data!.email_kinds ?? []), "high_fit"])) : data!.email_kinds;
+      setData(await api.saveNotificationPrefs({ ...data!, email_kinds: kinds, ...p }));
+      setMsg("Saved.");
+    } catch (e) { setErr(errorText(e)); }
+  }
+
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <h2>Email me new matches</h2>
+      {!data.email_configured ? (
+        <div className="small">
+          <p style={{ marginTop: 0 }}>Email is not set up on the server yet. For Gmail, create an <b>app password</b> (Google
+            Account → Security → 2-Step Verification → App passwords), then add to <code>.env</code> and run <code>./jp up -d</code>:</p>
+          <pre style={{ whiteSpace: "pre-wrap" }}>{`JOBPILOT_SMTP_HOST=smtp.gmail.com
+JOBPILOT_SMTP_PORT=587
+JOBPILOT_SMTP_USERNAME=you@gmail.com
+JOBPILOT_SMTP_PASSWORD=the-16-letter-app-password
+JOBPILOT_EMAIL_FROM=you@gmail.com
+JOBPILOT_NOTIFY_EMAIL_TO=you@gmail.com`}</pre>
+        </div>
+      ) : (
+        <>
+          <div className="row small">
+            <label className="row" style={{ display: "flex" }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={data.email_enabled && data.email_kinds.includes("high_fit")}
+                onChange={(e) => save({ email_enabled: e.target.checked })} />
+              Email {data.email_to_hint} after each search that finds new jobs scoring at least
+            </label>
+            <input type="number" min={0} max={100} value={s} style={{ width: 80 }}
+              onChange={(e) => setScore(e.target.value)}
+              onBlur={() => { const n = Math.max(0, Math.min(100, Number(s) || 60)); setScore(null);
+                if (n !== data.high_fit_min_score) save({ high_fit_min_score: n }); }} />
+            <span>%</span>
+            <button className="btn small" onClick={async () => {
+              setErr(null); setMsg(null);
+              try { const r = await api.testEmail(); setMsg(`Test email sent to ${r.to}.`); } catch (e) { setErr(errorText(e)); }
+            }}>Send a test email</button>
+            {msg && <span className="muted">{msg}</span>}
+          </div>
+          <p className="small muted" style={{ marginBottom: 0 }}>One email per search (never one per job), listing each
+            job with its score and link. Problems with the search are emailed too when they are critical.</p>
+        </>
+      )}
+      <ErrorBox message={err} />
+    </section>
+  );
+}
+
 export default function MonitorPage() {
   const configs = useLoad(api.configs);
   const runs = useLoad(api.runs);
@@ -221,6 +280,7 @@ export default function MonitorPage() {
       )}
 
       {sources.data && <SearchSettings key={cfg.id} cfg={cfg} sources={sources.data} onSaved={(c) => setCfg({ ...cfg, ...c })} />}
+      <EmailCard />
       <ScheduleCard key={`${cfg.id}-${cfg.cron}-${cfg.paused_reason}`} config={cfg}
         onSaved={(c) => setCfg({ ...cfg, cron: c.cron, timezone: c.timezone, allow_overlap: c.allow_overlap,
           schedule_text: c.schedule_text, next_run_at: c.next_run_at, paused_reason: c.paused_reason, last_dispatch: c.last_dispatch })} />

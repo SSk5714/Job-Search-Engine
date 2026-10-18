@@ -41,6 +41,10 @@ class AIProvider(Protocol):
         """One request, one Pydantic-validated result. Raises AIError."""
         ...
 
+    def chat(self, *, system: str, messages: list[dict], max_tokens: int = 1500) -> tuple[str, AIUsage]:
+        """One conversation turn: reply text and usage. Raises AIError."""
+        ...
+
 
 def get_provider() -> AIProvider | None:
     """The configured provider, or None when no key is set (callers fall back to rules)."""

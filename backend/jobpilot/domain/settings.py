@@ -46,7 +46,7 @@ class NotificationSettings(BaseModel):
     email_kinds: list[str] = Field(default_factory=lambda: ["alert", "high_fit", "ready_for_review",
                                                             "submitted", "follow_up"])
     email_alert_min_severity: str = Field(default="critical", pattern="^(info|warning|critical)$")
-    high_fit_min_score: int = Field(default=75, ge=0, le=100)
+    high_fit_min_score: int = Field(default=60, ge=0, le=100)
     follow_up_lead_days: int = Field(default=2, ge=0, le=14)
 
     @model_validator(mode="after")

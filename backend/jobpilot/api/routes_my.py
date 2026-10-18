@@ -2,6 +2,8 @@
 
 import uuid
 from datetime import UTC, date, datetime, timedelta
+from typing import Literal
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -18,13 +20,14 @@ from jobpilot.documents import service as documents
 from jobpilot.domain import transitions
 from jobpilot.domain.errors import DomainError, NotFound
 from jobpilot.domain.states import INACTIVE, Actor, State
-from jobpilot.orchestrator import runs
+from jobpilot.orchestrator import matching, runs
 
 router = APIRouter(prefix="/my", tags=["my"], dependencies=[Depends(current_user)])
 
 OPEN_STATES = ["classified", "approved_for_preparation", "documents_ready", "form_prepared", "awaiting_user_review",
                "needs_manual_input"]
 APPLIED_STATES = ["submitted", "follow_up", "closed"]
+PASTED_HOST = "pasted.jobpilot.invalid"  # jobs you pasted without a link; never opened, never fetched
 
 
 def _summary(text: str, n: int = 320) -> str:
@@ -66,6 +69,7 @@ def _card(db: Session, app: m.Application, ev: m.JobMatchEvaluation | None, targ
         "application_id": app.id, "job_id": j.id, "state": app.state,
         "title": j.title, "company": j.company, "city": j.city, "country": j.country, "work_mode": j.work_mode,
         "posted": j.published_at, "found": j.retrieved_at, "url": j.url, "source": j.source.name,
+        "has_link": urlsplit(j.url).hostname != PASTED_HOST, "added_by_you": j.source.access_mode == "manual",
         "summary": _summary(j.description_text),
         "score": ev.score if ev else None, "recommendation": ev.recommendation if ev else None,
         "why": (ev.explanation or "")[:400] if ev else "", "matched": (ev.matched_skills or [])[:8] if ev else [],
@@ -89,7 +93,7 @@ def my_jobs(include_weak: bool = False, db: Session = Depends(get_db)):
     cards = [_card(db, a, evs.get(a.job_id), targets) for a in apps
              if a.job.source.access_mode != "mock" or get_settings().test_jobs_enabled]
     # a company you asked for is shown even when the score is low (never when you are not eligible)
-    cards = [c for c in cards if c["recommendation"] in wanted
+    cards = [c for c in cards if c["recommendation"] in wanted or c["added_by_you"]
              or (c["target_company"] and c["recommendation"] == "low_priority")]
     cards.sort(key=lambda c: (-(c["score"] or 0), str(c["found"])))
     hidden = len(apps) - len(cards)
@@ -106,6 +110,10 @@ def _app(db: Session, app_id: uuid.UUID) -> m.Application:
 @router.post("/jobs/{app_id}/documents")
 def make_documents(app_id: uuid.UUID, db: Session = Depends(get_db)):
     """One click: approve the job for preparation if needed, then write the CV and cover letter."""
+    return _make_documents(db, app_id)
+
+
+def _make_documents(db: Session, app_id: uuid.UUID) -> dict:
     app = _app(db, app_id)
     if app.state == State.CLASSIFIED:
         if app.job.source.access_mode in ("api", "feed") and runs.recheck_availability(db, app.job) == "closed":
@@ -185,3 +193,55 @@ def update_history(app_id: uuid.UUID, body: OutcomeIn, db: Session = Depends(get
     app.last_action, app.last_action_at = "updated in history", datetime.now(UTC)
     db.commit()
     return _card(db, app, latest_evaluations(db, [app.job_id]).get(app.job_id))
+
+
+class PasteIn(BaseModel):
+    title: str = Field(min_length=2, max_length=255)
+    company: str = Field(min_length=1, max_length=255)
+    job_text: str = Field(min_length=50, max_length=20000)
+    company_details: str | None = Field(default=None, max_length=6000)
+    url: str | None = Field(default=None, max_length=2000, pattern=r"^https?://")
+    city: str | None = Field(default=None, max_length=120)
+    work_mode: Literal["onsite", "hybrid", "remote"] | None = None
+
+
+@router.post("/paste", status_code=201)
+def paste_job(body: PasteIn, db: Session = Depends(get_db)):
+    """A job description you pasted: score it and write the CV and cover letter in one go."""
+    text = body.job_text.strip()
+    if body.company_details and body.company_details.strip():
+        text += "\n\nAbout the company:\n" + body.company_details.strip()
+    url = body.url or f"https://{PASTED_HOST}/{uuid.uuid4()}"
+    job, outcome = runs.import_url(db, url, {"title": body.title.strip(), "company": body.company.strip(),
+                                             "city": body.city, "country": "DE" if body.city else None,
+                                             "work_mode": body.work_mode, "description": text})
+    if outcome == "new":
+        matching.classify_pending(db)
+    db.flush()
+    app = db.scalar(select(m.Application).where(m.Application.job_id == job.id)
+                    .order_by(m.Application.created_at.desc()))
+    if app is None:
+        raise DomainError("not_scored", "The job was saved but could not be scored; open Jobs and try again")
+    if app.state in (State.CLASSIFIED, State.APPROVED_FOR_PREPARATION, State.DOCUMENTS_READY):
+        card = _make_documents(db, app.id)
+    else:
+        db.commit()
+        card = _card(db, app, latest_evaluations(db, [job.id]).get(job.id))
+    return {**card, "outcome": outcome}
+
+
+class Turn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=8000)
+
+
+class AskIn(BaseModel):
+    messages: list[Turn] = Field(min_length=1, max_length=40)
+    application_id: uuid.UUID | None = None
+
+
+@router.post("/assistant")
+def ask_assistant(body: AskIn, db: Session = Depends(get_db)):
+    from jobpilot import assistant
+
+    return assistant.ask(db, [t.model_dump() for t in body.messages], body.application_id)

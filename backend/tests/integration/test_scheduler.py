@@ -77,7 +77,8 @@ def test_new_high_fit_jobs_make_one_summary_notification(api):
     tick(enqueue=sync_enqueue)
     notes = [n for n in api.get("/notifications").json() if n["kind"] == "high_fit"]
     assert len(notes) == 1, notes  # one summary for the run, not one per job
-    assert "high-fit" in notes[0]["title"] and notes[0]["link"] == "/jobs"
+    assert "matching 50% or more" in notes[0]["title"] and notes[0]["link"] == "/"
+    assert "http" in notes[0]["body"]  # each job comes with its link
 
 
 def test_two_schedulers_at_once_start_one_run(api):
